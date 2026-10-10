@@ -552,6 +552,30 @@ fn sources_and_device_kind() {
 }
 
 #[test]
+fn lens_can_be_set_by_hand() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    // Stand-in for a lens the camera did record.
+    lib.conn().execute("UPDATE photos SET lens = 'M.12-40mm' WHERE id = ?1", [ids[2]]).unwrap();
+    let lens = |id: i64| {
+        let p = queries::get_photo(&lib, id).unwrap().photo;
+        (p.lens, p.lens_set)
+    };
+    assert_eq!(lens(ids[0]), (None, false));
+
+    queries::set_lens(&lib, &ids, "  7Artisans 25mm F1.8 ").unwrap();
+    assert_eq!(lens(ids[0]), (Some("7Artisans 25mm F1.8".into()), true));
+    assert_eq!(lens(ids[2]).0.as_deref(), Some("7Artisans 25mm F1.8"), "set by hand wins over EXIF");
+    assert_eq!(queries::list_lenses(&lib).unwrap(), vec!["7Artisans 25mm F1.8"]);
+
+    // Clearing goes back to what EXIF says.
+    queries::set_lens(&lib, &ids, "").unwrap();
+    assert_eq!(lens(ids[0]), (None, false));
+    assert_eq!(lens(ids[2]), (Some("M.12-40mm".into()), false));
+    assert_eq!(queries::list_lenses(&lib).unwrap(), vec!["M.12-40mm"]);
+}
+
+#[test]
 fn emptying_trash_hands_files_to_the_system_trash() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);

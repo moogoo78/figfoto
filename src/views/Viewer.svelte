@@ -6,6 +6,7 @@
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
+  import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import type { Mark, Photo, PhotoDetail } from "../lib/types";
 
@@ -102,7 +103,13 @@
         <dt>{t("Taken")}</dt><dd>{fmtDateTime(p.takenAt)}</dd>
         <dt>{t("Size")}</dt><dd>{p.width} × {p.height} · {fmtBytes(p.fileSize)}</dd>
         {#if p.cameraModel}<dt>{t("Camera")}</dt><dd>{[p.cameraMake, p.cameraModel].filter(Boolean).join(" ")}</dd>{/if}
-        {#if p.lens}<dt>{t("Lens")}</dt><dd>{p.lens}</dd>{/if}
+        {#if p.lens}
+          <dt>{t("Lens")}</dt>
+          <dd>
+            {p.lens}
+            {#if p.lensSet}<button class="link" onclick={() => store.mutate(() => api.setLens([p.id], ""))}>{t("reset")}</button>{/if}
+          </dd>
+        {/if}
         {#if p.fNumber || p.exposure || p.iso || p.focalLen}
           <dt>{t("Exposure")}</dt>
           <dd>
@@ -133,6 +140,9 @@
 
       <h3>{t("Source")}</h3>
       <SourceInput onset={(s) => store.mutate(() => api.setSource([p.id], s))} />
+
+      <h3>{t("Lens")}</h3>
+      <LensInput onset={(lens) => store.mutate(() => api.setLens([p.id], lens))} />
 
       <h3>{t("Albums")}</h3>
       <div class="chips">

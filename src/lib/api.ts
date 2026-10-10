@@ -63,4 +63,6 @@ export const api = {
 
   listSources: () => invoke<string[]>("list_sources"),
   setSource: (ids: number[], source: string) => invoke<void>("set_source", { ids, source }),
+  listLenses: () => invoke<string[]>("list_lenses"),
+  setLens: (ids: number[], lens: string) => invoke<void>("set_lens", { ids, lens }),
 };

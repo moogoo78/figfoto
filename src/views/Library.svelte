@@ -8,6 +8,7 @@
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
+  import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import { MARKS, type Mark } from "../lib/types";
   import VirtualGrid from "../lib/VirtualGrid.svelte";
@@ -214,6 +215,7 @@
         <button onclick={() => store.mutate(() => api.setFavorite(selected, false))}>♡ {t("Unfavorite")}</button>
         <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags(selected, names), t("Tagged"))} />
         <SourceInput onset={(source) => store.mutate(() => api.setSource(selected, source), source ? t("Source set to {source}", { source }) : t("Source cleared"))} />
+        <LensInput onset={(lens) => store.mutate(() => api.setLens(selected, lens), lens ? t("Lens set to {lens}", { lens }) : t("Lens cleared"))} />
         {#if newAlbumName != null}
           <input
             class="albumname"

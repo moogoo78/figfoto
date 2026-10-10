@@ -103,6 +103,11 @@ export const zhTW: Record<string, string> = {
   // Tag / source inputs
   "Add tag…": "新增標籤…",
   "Source (LINE, Facebook…)": "來源（LINE、Facebook…）",
+  "Lens (manual lenses)": "鏡頭（手動鏡頭）",
+  "Set the lens for photos taken with a manual lens. Enter nothing to go back to what the camera recorded.":
+    "為使用手動鏡頭拍攝的照片設定鏡頭。留空送出可恢復為相機記錄的鏡頭。",
+  "Lens set to {lens}": "鏡頭已設為 {lens}",
+  "Lens cleared": "已清除鏡頭",
 
   // Viewer
   Previous: "上一張",

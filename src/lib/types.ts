@@ -12,7 +12,10 @@ export interface Photo {
   mime: string | null;
   cameraMake: string | null;
   cameraModel: string | null;
+  /** Set by hand if present, otherwise from EXIF. */
   lens: string | null;
+  /** `lens` was set by hand (manual lens) and can be reset to EXIF. */
+  lensSet: boolean;
   iso: number | null;
   fNumber: number | null;
   exposure: string | null;

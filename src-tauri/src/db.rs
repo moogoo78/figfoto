@@ -152,6 +152,10 @@ CREATE TABLE import_seen (
     PRIMARY KEY (rel_path, size, mtime_ns)
 ) WITHOUT ROWID;
 "#,
+    // v9: lens set by hand (manual lenses record none in EXIF); overrides photos.lens.
+    r#"
+ALTER TABLE photos ADD COLUMN lens_set TEXT;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

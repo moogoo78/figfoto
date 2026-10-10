@@ -22,7 +22,10 @@ pub struct Photo {
     pub mime: Option<String>,
     pub camera_make: Option<String>,
     pub camera_model: Option<String>,
+    /// Set by hand if present, otherwise from EXIF.
     pub lens: Option<String>,
+    /// Whether `lens` was set by hand (and can be reset to the EXIF value).
+    pub lens_set: bool,
     pub iso: Option<i64>,
     pub f_number: Option<f64>,
     pub exposure: Option<String>,
@@ -46,8 +49,9 @@ pub struct Photo {
 }
 
 const PHOTO_COLS: &str = "p.id, p.hash, p.rel_path, p.orig_name, p.source_path, p.taken_at, p.imported_at,
-    p.width, p.height, p.file_size, p.mime, p.camera_make, p.camera_model, p.lens, p.iso, p.f_number,
-    p.exposure, p.focal_len, p.gps_lat, p.gps_lon, p.rating, p.favorite, p.trashed_at, p.mark, p.source";
+    p.width, p.height, p.file_size, p.mime, p.camera_make, p.camera_model, COALESCE(p.lens_set, p.lens), p.iso, p.f_number,
+    p.exposure, p.focal_len, p.gps_lat, p.gps_lon, p.rating, p.favorite, p.trashed_at, p.mark, p.source,
+    p.lens_set IS NOT NULL";
 
 fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
     let hash: String = r.get(1)?;
@@ -87,6 +91,7 @@ fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
         trashed_at,
         mark: r.get(23)?,
         source: r.get(24)?,
+        lens_set: r.get(25)?,
     })
 }
 
@@ -494,6 +499,24 @@ pub fn remove_from_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()
 pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()> {
     lib.conn().execute("UPDATE albums SET cover_photo_id = ?1 WHERE id = ?2", [photo_id, album_id])?;
     Ok(())
+}
+
+/// Sets the lens by hand (for manual lenses that record none); empty clears it back to EXIF.
+pub fn set_lens(lib: &Library, ids: &[i64], lens: &str) -> Result<()> {
+    let lens = Some(lens.trim()).filter(|s| !s.is_empty());
+    lib.conn().execute(&format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({})", id_list(ids)), [lens])?;
+    Ok(())
+}
+
+/// Distinct lenses (from EXIF or set by hand), for suggestions.
+pub fn list_lenses(lib: &Library) -> Result<Vec<String>> {
+    let conn = lib.conn();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT COALESCE(lens_set, lens) AS l FROM photos
+         WHERE l IS NOT NULL AND l != '' AND trashed_at IS NULL ORDER BY l COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn list_cameras(lib: &Library) -> Result<Vec<String>> {

@@ -353,6 +353,16 @@ pub async fn list_sources(state: State<'_, AppState>) -> Result<Vec<String>> {
 }
 
 #[tauri::command]
+pub async fn list_lenses(state: State<'_, AppState>) -> Result<Vec<String>> {
+    queries::list_lenses(&*state.lib()?)
+}
+
+#[tauri::command]
+pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -> Result<()> {
+    queries::set_lens(&*state.lib()?, &ids, &lens)
+}
+
+#[tauri::command]
 pub async fn set_source(state: State<'_, AppState>, ids: Vec<i64>, source: String) -> Result<()> {
     marks::set_source(&*state.lib()?, &ids, &source)
 }
