@@ -2,6 +2,7 @@
   import { i18n, LOCALES, t, type Locale } from "../lib/i18n.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { store } from "../lib/store.svelte";
+  import Wordmark from "../lib/Wordmark.svelte";
 
   async function choose(create: boolean) {
     const dir = await open({
@@ -14,8 +15,7 @@
 
 <div class="welcome">
   <div class="card">
-    <div class="logo">◒</div>
-    <h1>frutyfoto</h1>
+    <h1><Wordmark size={44} /></h1>
     <p>{t("Keep all your photos in one organised library, sorted by date, with tags, albums, ratings and duplicate detection.")}</p>
     <div class="buttons">
       <button class="primary" onclick={() => choose(true)}>{t("Create new library")}</button>
@@ -32,8 +32,7 @@
 <style>
   .welcome { height: 100vh; display: flex; align-items: center; justify-content: center; }
   .card { max-width: 440px; text-align: center; padding: 32px; }
-  .logo { font-size: 56px; color: var(--accent); }
-  h1 { margin: 8px 0; }
+  h1 { margin: 8px 0 12px; }
   p { color: var(--muted); line-height: 1.5; }
   .buttons { display: flex; flex-direction: column; gap: 10px; margin: 24px 0; }
   .buttons button { padding: 10px; font-size: 15px; }

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { i18n, LOCALES, t, type Locale } from "../lib/i18n.svelte";
-  import logo from "../../app-icon.svg";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, src } from "../lib/api";
   import { basename } from "../lib/format";
   import { store } from "../lib/store.svelte";
+  import Wordmark from "../lib/Wordmark.svelte";
   import type { View } from "../lib/types";
 
   let newAlbum = $state<string | null>(null);
@@ -57,7 +57,7 @@
 
 <nav class="sidebar">
   <div class="brand">
-    <img class="logo" src={logo} alt="" /> frutyfoto
+    <Wordmark size={20} />
   </div>
   <button class="primary import" onclick={() => store.openImport()}>＋ {t("Import photos")}</button>
 
@@ -169,8 +169,7 @@
 <style>
   .sidebar { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--panel);
     border-right: 1px solid var(--border); overflow-y: auto; }
-  .brand { display: flex; align-items: center; gap: 8px; padding: 16px 16px 10px; font-weight: 700; font-size: 16px; }
-  .logo { width: 22px; height: 22px; }
+  .brand { padding: 16px 16px 10px; }
   .import { margin: 0 12px 8px; }
   .section { padding: 8px 8px; border-top: 1px solid var(--border); }
   .heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px;
