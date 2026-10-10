@@ -51,6 +51,10 @@ services:
   # Produces .deb / AppImage into ./release
   bundle:
     <<: *base
+    # Keeps the AppImage tools Tauri downloads (linuxdeploy, AppRun) in the persistent
+    # target volume, so they aren't fetched again on every bundle.
+    environment:
+      XDG_CACHE_HOME: /app/src-tauri/target/.cache
     command: >
       sh -c "pnpm install && pnpm tauri build --bundles deb,appimage
       && mkdir -p release && cp --remove-destination src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage release/"
