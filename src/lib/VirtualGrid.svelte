@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import { src } from "./api";
   import { fmtDay, originLabel } from "./format";
   import type { PhotoList } from "./photoList.svelte";
@@ -119,9 +120,9 @@
         <h3 class="day" style:top="{row.top}px">
           {fmtDay(row.day)} <span>{row.count}</span>
           {#if ondayaction}
-            <button class="link dayact" onclick={() => ondayaction("select", row.day, row.start, row.count)}>Select</button>
-            <button class="link dayact" title="Create an album from this day's photos"
-              onclick={() => ondayaction("album", row.day, row.start, row.count)}>＋ New album</button>
+            <button class="link dayact" onclick={() => ondayaction("select", row.day, row.start, row.count)}>{t("Select")}</button>
+            <button class="link dayact" title={t("Create an album from this day's photos")}
+              onclick={() => ondayaction("album", row.day, row.start, row.count)}>＋ {t("New album")}</button>
           {/if}
         </h3>
       {/if}

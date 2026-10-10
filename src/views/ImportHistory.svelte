@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { api, src } from "../lib/api";
   import { basename, errorText, fmtDateTime } from "../lib/format";
   import { store } from "../lib/store.svelte";
@@ -9,10 +10,10 @@
   function status(i: ImportRecord): { text: string; kind: string } | null {
     const p = store.progress;
     if (!i.finishedAt) {
-      return p && p.importId === i.id && !p.finished ? { text: "Running", kind: "run" } : { text: "Interrupted", kind: "bad" };
+      return p && p.importId === i.id && !p.finished ? { text: t("Running"), kind: "run" } : { text: t("Interrupted"), kind: "bad" };
     }
-    if (i.cancelled) return { text: "Stopped", kind: "warn" };
-    if (i.failed) return { text: "Finished with errors", kind: "warn" };
+    if (i.cancelled) return { text: t("Stopped"), kind: "warn" };
+    if (i.failed) return { text: t("Finished with errors"), kind: "warn" };
     return null;
   }
 
@@ -20,7 +21,7 @@
     if (!i.finishedAt) return "";
     const s = Math.round((new Date(i.finishedAt).getTime() - new Date(i.startedAt).getTime()) / 1000);
     if (!(s >= 0)) return "";
-    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+    return s < 60 ? t("{s}s", { s }) : t("{m}m {s}s", { m: Math.floor(s / 60), s: s % 60 });
   }
 
   async function toggleErrors(id: number) {
@@ -38,17 +39,17 @@
 
 <section class="history">
   <header>
-    <h1>Imports</h1>
-    <span class="count">{store.imports.length} import{store.imports.length === 1 ? "" : "s"}</span>
+    <h1>{t("Imports")}</h1>
+    <span class="count">{t(store.imports.length === 1 ? "{n} import" : "{n} imports", { n: store.imports.length })}</span>
   </header>
 
   <div class="body">
     {#each store.imports as imp (imp.id)}
       {@const st = status(imp)}
       <article class="card">
-        <button class="cover" disabled={!imp.photoCount} title="View photos from this import"
+        <button class="cover" disabled={!imp.photoCount} title={t("View photos from this import")}
           onclick={() => store.setView({ kind: "import", id: imp.id })}>
-          {#if imp.cover}<img src={src(imp.cover)} alt="" />{:else}<span class="none">No photos</span>{/if}
+          {#if imp.cover}<img src={src(imp.cover)} alt="" />{:else}<span class="none">{t("No photos")}</span>{/if}
         </button>
 
         <div class="info">
@@ -58,18 +59,18 @@
           </div>
           <div class="path" title={imp.sourceDir}>{imp.sourceDir}</div>
           <div class="when">
-            {fmtDateTime(imp.startedAt)}{#if duration(imp)} · took {duration(imp)}{/if}
+            {fmtDateTime(imp.startedAt)}{#if duration(imp)} · {t("took {d}", { d: duration(imp) })}{/if}
           </div>
           <div class="stats">
-            <span class="ok">{imp.added} added</span>
-            <span>{imp.skippedDupes} already in library</span>
+            <span class="ok">{t("{n} added", { n: imp.added })}</span>
+            <span>{t("{n} already in library", { n: imp.skippedDupes })}</span>
             {#if imp.failed}
               <button class="link bad" onclick={() => toggleErrors(imp.id)}>
-                {imp.failed} failed {errors[imp.id] ? "▴" : "▾"}
+                {t("{n} failed", { n: imp.failed })} {errors[imp.id] ? "▴" : "▾"}
               </button>
             {/if}
             {#if imp.photoCount !== imp.added}
-              <span class="muted">{imp.photoCount} still in library</span>
+              <span class="muted">{t("{n} still in library", { n: imp.photoCount })}</span>
             {/if}
           </div>
           {#if errors[imp.id]}
@@ -80,16 +81,16 @@
         </div>
 
         <div class="actions">
-          <button disabled={!imp.photoCount} onclick={() => store.setView({ kind: "import", id: imp.id })}>View photos</button>
-          <button onclick={() => store.openImport(imp.sourceDir)} title="Import this folder again; only new files are copied">
-            Import again
+          <button disabled={!imp.photoCount} onclick={() => store.setView({ kind: "import", id: imp.id })}>{t("View photos")}</button>
+          <button onclick={() => store.openImport(imp.sourceDir)} title={t("Import this folder again; only new files are copied")}>
+            {t("Import again")}
           </button>
         </div>
       </article>
     {:else}
       <div class="empty">
-        <p>No imports yet.</p>
-        <button class="primary" onclick={() => store.openImport()}>Import photos</button>
+        <p>{t("No imports yet.")}</p>
+        <button class="primary" onclick={() => store.openImport()}>{t("Import photos")}</button>
       </div>
     {/each}
   </div>

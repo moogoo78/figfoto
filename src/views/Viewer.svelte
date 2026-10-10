@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { api, src } from "../lib/api";
   import { errorText, fmtBytes, fmtDateTime, originLabel } from "../lib/format";
   import type { PhotoList } from "../lib/photoList.svelte";
@@ -64,8 +65,8 @@
   function trash() {
     if (!photo) return;
     const ids = [photo.id];
-    if (photo.trashedAt) store.mutate(() => api.restorePhotos(ids), "Restored");
-    else store.mutate(() => api.trashPhotos(ids), "Moved to trash");
+    if (photo.trashedAt) store.mutate(() => api.restorePhotos(ids), t("Restored"));
+    else store.mutate(() => api.trashPhotos(ids), t("Moved to trash"));
   }
 </script>
 
@@ -76,14 +77,14 @@
     {#if photo}
       <img src={src(photo.display)} alt={photo.origName} />
     {/if}
-    <button class="nav prev" disabled={index <= 0} onclick={() => step(-1)} aria-label="Previous">‹</button>
-    <button class="nav next" disabled={index >= list.total - 1} onclick={() => step(1)} aria-label="Next">›</button>
+    <button class="nav prev" disabled={index <= 0} onclick={() => step(-1)} aria-label={t("Previous")}>‹</button>
+    <button class="nav next" disabled={index >= list.total - 1} onclick={() => step(1)} aria-label={t("Next")}>›</button>
     <div class="top">
       <span class="pos">{index + 1} / {list.total}</span>
       {#if photo?.mark}<span class="mark mark-{photo.mark}" title={store.markName(photo.mark)}>{photo.mark} · {store.markName(photo.mark)}</span>{/if}
       <span class="spacer"></span>
-      <button onclick={() => (showInfo = !showInfo)} title="Toggle info (i)">Info</button>
-      <button onclick={onclose} title="Close (Esc)">✕</button>
+      <button onclick={() => (showInfo = !showInfo)} title={t("Toggle info (i)")}>{t("Info")}</button>
+      <button onclick={onclose} title={t("Close (Esc)")}>✕</button>
     </div>
   </div>
 
@@ -94,49 +95,49 @@
       <div class="row">
         <Stars value={p.rating} onchange={(n) => store.mutate(() => api.setRating([p.id], n))} />
         <button class="fav" class:on={p.favorite} onclick={() => store.mutate(() => api.setFavorite([p.id], !p.favorite))}
-          title="Favorite (f)">♥</button>
+          title={t("Favorite (f)")}>♥</button>
       </div>
 
       <dl>
-        <dt>Taken</dt><dd>{fmtDateTime(p.takenAt)}</dd>
-        <dt>Size</dt><dd>{p.width} × {p.height} · {fmtBytes(p.fileSize)}</dd>
-        {#if p.cameraModel}<dt>Camera</dt><dd>{[p.cameraMake, p.cameraModel].filter(Boolean).join(" ")}</dd>{/if}
-        {#if p.lens}<dt>Lens</dt><dd>{p.lens}</dd>{/if}
+        <dt>{t("Taken")}</dt><dd>{fmtDateTime(p.takenAt)}</dd>
+        <dt>{t("Size")}</dt><dd>{p.width} × {p.height} · {fmtBytes(p.fileSize)}</dd>
+        {#if p.cameraModel}<dt>{t("Camera")}</dt><dd>{[p.cameraMake, p.cameraModel].filter(Boolean).join(" ")}</dd>{/if}
+        {#if p.lens}<dt>{t("Lens")}</dt><dd>{p.lens}</dd>{/if}
         {#if p.fNumber || p.exposure || p.iso || p.focalLen}
-          <dt>Exposure</dt>
+          <dt>{t("Exposure")}</dt>
           <dd>
             {[p.fNumber && `ƒ/${p.fNumber.toFixed(1)}`, p.exposure, p.iso && `ISO ${p.iso}`, p.focalLen && `${Math.round(p.focalLen)} mm`]
               .filter(Boolean).join(" · ")}
           </dd>
         {/if}
         {#if p.gpsLat != null && p.gpsLon != null}
-          <dt>Location</dt><dd>{p.gpsLat.toFixed(5)}, {p.gpsLon.toFixed(5)}</dd>
+          <dt>{t("Location")}</dt><dd>{p.gpsLat.toFixed(5)}, {p.gpsLon.toFixed(5)}</dd>
         {/if}
-        <dt>Source</dt>
+        <dt>{t("Source")}</dt>
         <dd>
-          {originLabel(p) || "Unknown"}
-          {#if p.source}<button class="link" onclick={() => store.mutate(() => api.setSource([p.id], ""))}>reset</button>{/if}
+          {originLabel(p) || t("Unknown")}
+          {#if p.source}<button class="link" onclick={() => store.mutate(() => api.setSource([p.id], ""))}>{t("reset")}</button>{/if}
         </dd>
-        <dt>Imported</dt><dd>{fmtDateTime(p.importedAt)}</dd>
-        {#if p.sourcePath}<dt>Source</dt><dd class="path">{p.sourcePath}</dd>{/if}
-        <dt>File</dt><dd class="path">{p.relPath}</dd>
+        <dt>{t("Imported")}</dt><dd>{fmtDateTime(p.importedAt)}</dd>
+        {#if p.sourcePath}<dt>{t("Original path")}</dt><dd class="path">{p.sourcePath}</dd>{/if}
+        <dt>{t("File")}</dt><dd class="path">{p.relPath}</dd>
       </dl>
 
-      <h3>Tags</h3>
+      <h3>{t("Tags")}</h3>
       <div class="chips">
-        {#each detail?.tags ?? [] as t (t.id)}
-          <span class="chip">{t.name}<button onclick={() => store.mutate(() => api.removeTag([p.id], t.id))} aria-label="Remove tag">×</button></span>
+        {#each detail?.tags ?? [] as tag (tag.id)}
+          <span class="chip">{tag.name}<button onclick={() => store.mutate(() => api.removeTag([p.id], tag.id))} aria-label={t("Remove tag")}>×</button></span>
         {/each}
       </div>
       <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags([p.id], names))} />
 
-      <h3>Source</h3>
+      <h3>{t("Source")}</h3>
       <SourceInput onset={(s) => store.mutate(() => api.setSource([p.id], s))} />
 
-      <h3>Albums</h3>
+      <h3>{t("Albums")}</h3>
       <div class="chips">
         {#each detail?.albums ?? [] as a (a.id)}
-          <span class="chip">{a.name}<button onclick={() => store.mutate(() => api.removeFromAlbum(a.id, [p.id]))} aria-label="Remove from album">×</button></span>
+          <span class="chip">{a.name}<button onclick={() => store.mutate(() => api.removeFromAlbum(a.id, [p.id]))} aria-label={t("Remove from album")}>×</button></span>
         {/each}
       </div>
       {#if store.albums.length}
@@ -146,13 +147,13 @@
             e.currentTarget.value = "";
             if (id) store.mutate(() => api.addToAlbum(id, [p.id]));
           }}>
-          <option value="">Add to album…</option>
+          <option value="">{t("Add to album…")}</option>
           {#each store.albums as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
         </select>
       {/if}
 
       <div class="actions">
-        <button class:danger={!p.trashedAt} onclick={trash}>{p.trashedAt ? "Restore" : "Move to trash"}</button>
+        <button class:danger={!p.trashedAt} onclick={trash}>{p.trashedAt ? t("Restore") : t("Move to trash")}</button>
       </div>
     </aside>
   {/if}

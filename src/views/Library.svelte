@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { untrack } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
@@ -52,13 +53,13 @@
   const title = $derived.by(() => {
     const v = store.view;
     switch (v.kind) {
-      case "favorites": return "Favorites";
-      case "trash": return "Trash";
-      case "album": return store.albums.find((a) => a.id === v.id)?.name ?? "Album";
-      case "tag": return `#${store.tags.find((t) => t.id === v.id)?.name ?? ""}`;
-      case "import": return `Import: ${basename(currentImport?.sourceDir ?? "")}`;
+      case "favorites": return t("Favorites");
+      case "trash": return t("Trash");
+      case "album": return store.albums.find((a) => a.id === v.id)?.name ?? t("Album");
+      case "tag": return `#${store.tags.find((tag) => tag.id === v.id)?.name ?? ""}`;
+      case "import": return t("Import: {name}", { name: basename(currentImport?.sourceDir ?? "") });
       case "mark": return store.markName(v.mark);
-      default: return "All photos";
+      default: return t("All photos");
     }
   });
 
@@ -94,9 +95,9 @@
   }
 
   async function emptyTrash() {
-    const msg = `Remove ${store.counts.trash} photo(s) from the library? The files are moved to the system Trash, where you can still recover them.`;
-    if (!(await ask(msg, { title: "Empty trash", kind: "warning" }))) return;
-    store.mutate(() => api.emptyTrash(), "Moved to the system Trash");
+    const msg = t("Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them.", { n: store.counts.trash });
+    if (!(await ask(msg, { title: t("Empty trash"), kind: "warning" }))) return;
+    store.mutate(() => api.emptyTrash(), t("Moved to the system Trash"));
   }
 
   function toggleMark(ids: number[], mark: Mark) {
@@ -120,7 +121,7 @@
     await store.mutate(async () => {
       id = await api.createAlbum(name);
       await api.addToAlbum(id, ids);
-    }, `Album “${name}” created with ${ids.length} photo(s)`);
+    }, t("Album “{name}” created with {n} photo(s)", { name, n: ids.length }));
     if (id) store.selection.clear();
   }
 
@@ -134,8 +135,8 @@
 
   function trashOrRestore(ids: number[]) {
     store.selection.clear();
-    if (inTrash) store.mutate(() => api.restorePhotos(ids), `Restored ${ids.length} photo(s)`);
-    else store.mutate(() => api.trashPhotos(ids), `Moved ${ids.length} photo(s) to trash`);
+    if (inTrash) store.mutate(() => api.restorePhotos(ids), t("Restored {n} photo(s)", { n: ids.length }));
+    else store.mutate(() => api.trashPhotos(ids), t("Moved {n} photo(s) to trash", { n: ids.length }));
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -177,61 +178,61 @@
 <section class="library">
   <header>
     {#if currentImport}
-      <button class="link" onclick={() => store.setView({ kind: "imports" })} title="Back to import history">‹ Imports</button>
+      <button class="link" onclick={() => store.setView({ kind: "imports" })} title={t("Back to import history")}>‹ {t("Imports")}</button>
     {/if}
     {#if markView}
-      <button class="link" onclick={() => store.setView({ kind: "marks" })} title="Back to marks">‹ Marks</button>
+      <button class="link" onclick={() => store.setView({ kind: "marks" })} title={t("Back to marks")}>‹ {t("Marks")}</button>
       <span class="mark mark-{markView}">{markView}</span>
     {/if}
     <h1 title={currentImport?.sourceDir}>{title}</h1>
     <span class="count">
-      {list.total.toLocaleString()} photos{#if currentImport} · imported {fmtDateTime(currentImport.startedAt)}{/if}
+      {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("imported {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
     </span>
     <span class="grow"></span>
     {#if markView && list.total > 0}
       <button class:danger={markView === "x"} class:primary={markView !== "x"}
         disabled={!!store.runningMark || !store.markSlot(markView)?.kind}
-        title={store.markSlot(markView)?.kind ? "" : "Set up this mark in the Marks view first"}
+        title={store.markSlot(markView)?.kind ? "" : t("Set up this mark in the Marks view first")}
         onclick={() => store.runMark(markView)}>
-        {store.runningMark === markView ? "Running…" : markView === "x" ? `Move ${list.total} to trash` : `Run on ${list.total}`}
+        {store.runningMark === markView ? t("Running…") : markView === "x" ? t("Move {n} to trash", { n: list.total }) : t("Run on {n}", { n: list.total })}
       </button>
     {/if}
     {#if inTrash && store.counts.trash > 0}
-      <button class="danger" onclick={emptyTrash}>Empty trash</button>
+      <button class="danger" onclick={emptyTrash}>{t("Empty trash")}</button>
     {/if}
     <button class:active={showFilters || store.hasQuery} onclick={() => (showFilters = !showFilters)}>
-      Filter{store.hasQuery ? " •" : ""}
+      {t("Filter")}{store.hasQuery ? " •" : ""}
     </button>
-    <select bind:value={store.sort} title="Sort">
-      <option value="takenDesc">Newest first</option>
-      <option value="takenAsc">Oldest first</option>
-      <option value="importedDesc">Recently imported</option>
-      <option value="ratingDesc">Highest rated</option>
+    <select bind:value={store.sort} title={t("Sort")}>
+      <option value="takenDesc">{t("Newest first")}</option>
+      <option value="takenAsc">{t("Oldest first")}</option>
+      <option value="importedDesc">{t("Recently imported")}</option>
+      <option value="ratingDesc">{t("Highest rated")}</option>
     </select>
-    <input type="range" min="100" max="360" step="20" bind:value={store.thumbSize} title="Thumbnail size" />
+    <input type="range" min="100" max="360" step="20" bind:value={store.thumbSize} title={t("Thumbnail size")} />
   </header>
 
   {#if showFilters}<FilterBar />{/if}
 
   {#if selected.length}
     <div class="selbar">
-      <strong>{selected.length} selected</strong>
+      <strong>{t("{n} selected", { n: selected.length })}</strong>
       {#if !inTrash}
-        <span class="marks" role="group" aria-label="Mark">
+        <span class="marks" role="group" aria-label={t("Mark")}>
           {#each MARKS as m}
             <button class="mark mark-{m}" title="{store.markName(m)} ({m})" onclick={() => toggleMark(selected, m)}>{m}</button>
           {/each}
-          <button class="unmark" title="Clear mark" onclick={() => store.mutate(() => api.setMark(selected, null))}>∅</button>
+          <button class="unmark" title={t("Clear mark")} onclick={() => store.mutate(() => api.setMark(selected, null))}>∅</button>
         </span>
         <Stars value={singleRating} onchange={(n) => store.mutate(() => api.setRating(selected, n))} />
-        <button onclick={() => store.mutate(() => api.setFavorite(selected, true))}>♥ Favorite</button>
-        <button onclick={() => store.mutate(() => api.setFavorite(selected, false))}>♡ Unfavorite</button>
-        <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags(selected, names), "Tagged")} />
-        <SourceInput onset={(source) => store.mutate(() => api.setSource(selected, source), source ? `Source set to ${source}` : "Source cleared")} />
+        <button onclick={() => store.mutate(() => api.setFavorite(selected, true))}>♥ {t("Favorite")}</button>
+        <button onclick={() => store.mutate(() => api.setFavorite(selected, false))}>♡ {t("Unfavorite")}</button>
+        <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags(selected, names), t("Tagged"))} />
+        <SourceInput onset={(source) => store.mutate(() => api.setSource(selected, source), source ? t("Source set to {source}", { source }) : t("Source cleared"))} />
         {#if newAlbumName != null}
           <input
             class="albumname"
-            placeholder="New album name"
+            placeholder={t("New album name")}
             bind:value={newAlbumName}
             use:focusSelect
             onblur={() => (newAlbumName = null)}
@@ -241,29 +242,29 @@
               e.stopPropagation();
             }} />
         {:else}
-          <button onclick={() => (newAlbumName = suggestAlbumName())}>＋ New album</button>
+          <button onclick={() => (newAlbumName = suggestAlbumName())}>＋ {t("New album")}</button>
         {/if}
         {#if store.albums.length}
           <select
             onchange={(e) => {
               const id = Number(e.currentTarget.value);
               e.currentTarget.value = "";
-              if (id) store.mutate(() => api.addToAlbum(id, selected), "Added to album");
+              if (id) store.mutate(() => api.addToAlbum(id, selected), t("Added to album"));
             }}>
-            <option value="">Add to album…</option>
+            <option value="">{t("Add to album…")}</option>
             {#each store.albums as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
           </select>
         {/if}
         {#if albumId != null}
-          <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected))}>Remove from album</button>
+          <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected))}>{t("Remove from album")}</button>
           {#if selected.length === 1}
-            <button onclick={() => store.mutate(() => api.setAlbumCover(albumId, selected[0]), "Cover set")}>Set as cover</button>
+            <button onclick={() => store.mutate(() => api.setAlbumCover(albumId, selected[0]), t("Cover set"))}>{t("Set as cover")}</button>
           {/if}
         {/if}
       {/if}
       <span class="grow"></span>
-      <button class:danger={!inTrash} onclick={() => trashOrRestore(selected)}>{inTrash ? "Restore" : "Trash"}</button>
-      <button onclick={() => store.selection.clear()}>Clear</button>
+      <button class:danger={!inTrash} onclick={() => trashOrRestore(selected)}>{inTrash ? t("Restore") : t("Trash")}</button>
+      <button onclick={() => store.selection.clear()}>{t("Clear")}</button>
     </div>
   {/if}
 
@@ -273,15 +274,15 @@
     {:else if list.total === 0}
       <div class="empty">
         {#if store.hasQuery}
-          <p>No photos match the current filters.</p>
-          <button onclick={() => store.clearQuery()}>Clear filters</button>
+          <p>{t("No photos match the current filters.")}</p>
+          <button onclick={() => store.clearQuery()}>{t("Clear filters")}</button>
         {:else if store.view.kind === "library"}
-          <p>Your library is empty.</p>
-          <button class="primary" onclick={() => store.openImport()}>Import photos</button>
+          <p>{t("Your library is empty.")}</p>
+          <button class="primary" onclick={() => store.openImport()}>{t("Import photos")}</button>
         {:else if inTrash}
-          <p>Trash is empty.</p>
+          <p>{t("Trash is empty.")}</p>
         {:else}
-          <p>Nothing here yet.</p>
+          <p>{t("Nothing here yet.")}</p>
         {/if}
       </div>
     {:else}

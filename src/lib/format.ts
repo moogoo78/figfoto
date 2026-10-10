@@ -1,3 +1,5 @@
+import { i18n, t } from "./i18n.svelte";
+
 export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB"];
@@ -14,13 +16,13 @@ export function fmtBytes(n: number): string {
 export function fmtDay(day: string): string {
   const d = new Date(`${day}T00:00:00`);
   if (isNaN(d.getTime())) return day;
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleDateString(i18n.locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 export function fmtDateTime(s: string): string {
   const d = new Date(s);
   if (isNaN(d.getTime())) return s;
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return d.toLocaleString(i18n.locale, { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function basename(path: string): string {
@@ -30,7 +32,7 @@ export function basename(path: string): string {
 /** Source badge text: the user-set source, else Phone / Camera (empty if unknown). */
 export function originLabel(p: { source: string | null; device: string }): string {
   if (p.source) return p.source;
-  return p.device === "phone" ? "Phone" : p.device === "camera" ? "Camera" : "";
+  return p.device === "phone" ? t("Phone") : p.device === "camera" ? t("Camera") : "";
 }
 
 export const SOURCE_SUGGESTIONS = ["LINE", "Facebook", "Instagram", "WhatsApp", "Messenger", "Telegram", "WeChat", "Web", "Scan"];

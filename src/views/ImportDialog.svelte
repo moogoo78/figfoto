@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { errorText } from "../lib/format";
@@ -23,7 +24,7 @@
   const pct = $derived(p && p.total ? Math.round((p.done / p.total) * 100) : 0);
 
   async function pick() {
-    const dir = await open({ directory: true, title: "Choose a folder to import" });
+    const dir = await open({ directory: true, title: t("Choose a folder to import") });
     if (typeof dir === "string") source = dir;
   }
 
@@ -48,46 +49,45 @@
 
 {#if store.importOpen}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Import photos">
-      <h2>Import photos</h2>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label={t("Import photos")}>
+      <h2>{t("Import photos")}</h2>
 
       {#if !started}
         <p class="hint">
-          Photos are <strong>copied</strong> into your library under <code>originals/YYYY/MM/DD</code>. The source
-          folder is not changed. Files already in the library are skipped.
+          {t("Photos are copied into your library under")} <code>originals/YYYY/MM/DD</code>{t(". The source folder is not changed. Files already in the library are skipped.")}
         </p>
         <div class="pick">
-          <input readonly value={source} placeholder="No folder selected" onclick={pick} />
-          <button onclick={pick}>Browse…</button>
+          <input readonly value={source} placeholder={t("No folder selected")} onclick={pick} />
+          <button onclick={pick}>{t("Browse…")}</button>
         </div>
         <label class="origin">
-          <span>Source <small>(optional — e.g. photos saved from LINE or Facebook)</small></span>
-          <SourceInput bind:value={origin} submitOnEnter={false} placeholder="Camera / phone detected automatically" />
+          <span>{t("Source")} <small>{t("(optional — e.g. photos saved from LINE or Facebook)")}</small></span>
+          <SourceInput bind:value={origin} submitOnEnter={false} placeholder={t("Camera / phone detected automatically")} />
         </label>
         <div class="buttons">
-          <button onclick={close}>Cancel</button>
-          <button class="primary" disabled={!source} onclick={start}>Import</button>
+          <button onclick={close}>{t("Cancel")}</button>
+          <button class="primary" disabled={!source} onclick={start}>{t("Import")}</button>
         </div>
       {:else}
         <div class="bar"><div style:width="{pct}%"></div></div>
         <div class="stats">
           {#if !p || p.scanning}
-            <span>Scanning… {p?.total ?? 0} photos found</span>
+            <span>{t("Scanning… {n} photos found", { n: p?.total ?? 0 })}</span>
           {:else}
             <span>{p.done} / {p.total}</span>
           {/if}
-          <span class="ok">{p?.added ?? 0} added</span>
-          <span>{p?.skipped ?? 0} already in library</span>
-          {#if p?.failed}<span class="bad">{p.failed} failed</span>{/if}
+          <span class="ok">{t("{n} added", { n: p?.added ?? 0 })}</span>
+          <span>{t("{n} already in library", { n: p?.skipped ?? 0 })}</span>
+          {#if p?.failed}<span class="bad">{t("{n} failed", { n: p.failed })}</span>{/if}
         </div>
         {#if running}
-          <p class="current" title={p?.current}>{p?.current || "Scanning folder…"}</p>
+          <p class="current" title={p?.current}>{p?.current || t("Scanning folder…")}</p>
         {:else if p}
-          <p><strong>{p.cancelled ? "Import cancelled." : "Import finished."}</strong></p>
+          <p><strong>{p.cancelled ? t("Import cancelled.") : t("Import finished.")}</strong></p>
           {#if p.errors.length}
             <details open={p.errors.length < 5}>
               <summary>
-                {p.failed} error(s){#if p.errors.length < p.failed} — showing the last {p.errors.length}; see Import history for all{/if}
+                {t("{n} error(s)", { n: p.failed })}{#if p.errors.length < p.failed} — {t("showing the last {n}; see Import history for all", { n: p.errors.length })}{/if}
               </summary>
               <ul class="errors">
                 {#each p.errors as err}<li><code>{err.path}</code><br />{err.error}</li>{/each}
@@ -97,10 +97,10 @@
         {/if}
         <div class="buttons">
           {#if running}
-            <button onclick={() => api.cancelImport()}>Stop</button>
+            <button onclick={() => api.cancelImport()}>{t("Stop")}</button>
           {:else}
-            <button onclick={() => { started = false; source = ""; origin = ""; }}>Import more</button>
-            <button class="primary" onclick={close}>Done</button>
+            <button onclick={() => { started = false; source = ""; origin = ""; }}>{t("Import more")}</button>
+            <button class="primary" onclick={close}>{t("Done")}</button>
           {/if}
         </div>
       {/if}

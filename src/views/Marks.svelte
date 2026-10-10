@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { store } from "../lib/store.svelte";
@@ -18,20 +19,20 @@
   }
 
   async function pickFolder(slot: MarkSlot) {
-    const dir = await open({ directory: true, title: "Copy marked photos to…", defaultPath: slot.target || undefined });
+    const dir = await open({ directory: true, title: t("Copy marked photos to…"), defaultPath: slot.target || undefined });
     if (typeof dir === "string") save(slot, { target: dir });
   }
 
   function describe(slot: MarkSlot): string {
     switch (slot.kind) {
-      case "trash": return "Move to the library trash (restorable)";
-      case "copy": return slot.target ? `Copy to ${slot.target}` : "Choose a folder";
+      case "trash": return t("Move to the library trash (restorable)");
+      case "copy": return slot.target ? t("Copy to {target}", { target: slot.target }) : t("Choose a folder");
       case "album": {
         const a = store.albums.find((a) => String(a.id) === slot.target);
-        return a ? `Add to album “${a.name}” (files move into its folder)` : "Choose an album";
+        return a ? t("Add to album “{name}” (files move into its folder)", { name: a.name }) : t("Choose an album");
       }
-      case "tag": return slot.target ? `Tag with #${slot.target}` : "Enter a tag";
-      default: return "Not set up";
+      case "tag": return slot.target ? t("Tag with #{tag}", { tag: slot.target }) : t("Enter a tag");
+      default: return t("Not set up");
     }
   }
 
@@ -40,14 +41,14 @@
 
 <section class="marks">
   <header>
-    <h1>Marks</h1>
-    <span class="count">{store.counts.marked} marked photo(s)</span>
+    <h1>{t("Marks")}</h1>
+    <span class="count">{t("{n} marked photo(s)", { n: store.counts.marked })}</span>
   </header>
 
   <div class="body">
     <p class="hint">
-      While browsing, press <kbd>X</kbd> to mark photos for deletion and <kbd>1</kbd>–<kbd>4</kbd> for your own actions
-      (press again to unmark). Then run each mark here on all its photos at once. Photos lose their mark once processed.
+      {t("While browsing, press")} <kbd>X</kbd> {t("to mark photos for deletion and")} <kbd>1</kbd>–<kbd>4</kbd>
+      {t("for your own actions (press again to unmark). Then run each mark here on all its photos at once. Photos lose their mark once processed.")}
     </p>
 
     {#each store.marks as slot (slot.mark)}
@@ -56,25 +57,25 @@
 
         <div class="setup">
           {#if slot.mark === "x"}
-            <strong>Delete</strong>
+            <strong>{t("Delete")}</strong>
           {:else}
             <div class="fields">
-              <input class="label" placeholder="Label (e.g. Backup)" value={slot.label}
+              <input class="label" placeholder={t("Label (e.g. Backup)")} value={slot.label}
                 onchange={(e) => save(slot, { label: e.currentTarget.value })} />
               <select value={slot.kind ?? ""}
                 onchange={(e) => save(slot, { kind: (e.currentTarget.value || null) as MarkActionKind | null })}>
-                <option value="">No action</option>
-                {#each KINDS as k}<option value={k.value}>{k.text}</option>{/each}
+                <option value="">{t("No action")}</option>
+                {#each KINDS as k}<option value={k.value}>{t(k.text)}</option>{/each}
               </select>
               {#if slot.kind === "copy"}
-                <button onclick={() => pickFolder(slot)}>{slot.target ? "Change folder…" : "Choose folder…"}</button>
+                <button onclick={() => pickFolder(slot)}>{slot.target ? t("Change folder…") : t("Choose folder…")}</button>
               {:else if slot.kind === "album"}
                 <select value={slot.target} onchange={(e) => save(slot, { target: e.currentTarget.value })}>
-                  <option value="">Choose album…</option>
+                  <option value="">{t("Choose album…")}</option>
                   {#each store.albums as a (a.id)}<option value={String(a.id)}>{a.name}</option>{/each}
                 </select>
               {:else if slot.kind === "tag"}
-                <input placeholder="Tag" value={slot.target} onchange={(e) => save(slot, { target: e.currentTarget.value })} />
+                <input placeholder={t("Tag")} value={slot.target} onchange={(e) => save(slot, { target: e.currentTarget.value })} />
               {/if}
             </div>
           {/if}
@@ -87,11 +88,11 @@
 
         <span class="n">{slot.count}</span>
         <div class="actions">
-          <button disabled={!slot.count} onclick={() => store.setView({ kind: "mark", mark: slot.mark })}>View</button>
+          <button disabled={!slot.count} onclick={() => store.setView({ kind: "mark", mark: slot.mark })}>{t("View")}</button>
           <button class:danger={slot.mark === "x"} class:primary={slot.mark !== "x"}
             disabled={!slot.count || !ready(slot) || !!store.runningMark}
             onclick={() => store.runMark(slot.mark)}>
-            {store.runningMark === slot.mark ? "Running…" : "Run"}
+            {store.runningMark === slot.mark ? t("Running…") : t("Run")}
           </button>
         </div>
       </article>

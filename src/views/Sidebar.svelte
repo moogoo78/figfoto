@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { i18n, LOCALES, t, type Locale } from "../lib/i18n.svelte";
+  import logo from "../../app-icon.svg";
   import { ask, open } from "@tauri-apps/plugin-dialog";
   import { api, src } from "../lib/api";
   import { basename } from "../lib/format";
@@ -28,7 +30,7 @@
   }
 
   async function deleteAlbum(id: number, name: string) {
-    if (await ask(`Delete album "${name}"? Photos stay in the library.`, { title: "Delete album", kind: "warning" })) {
+    if (await ask(t('Delete album "{name}"? Photos stay in the library.', { name }), { title: t("Delete album"), kind: "warning" })) {
       store.mutate(() => api.deleteAlbum(id));
     }
   }
@@ -39,12 +41,15 @@
     if (!raw) return;
     e.preventDefault();
     const ids = JSON.parse(raw) as number[];
-    store.mutate(() => api.addToAlbum(albumId, ids), `Added ${ids.length} photo(s)`);
+    store.mutate(() => api.addToAlbum(albumId, ids), t("Added {n} photo(s)", { n: ids.length }));
   }
 
-  async function switchLibrary() {
-    const dir = await open({ directory: true, title: "Open frutyfoto library" });
-    if (typeof dir === "string") store.openLibrary(dir, false);
+  async function switchLibrary(create: boolean) {
+    const dir = await open({
+      directory: true,
+      title: create ? t("Choose an empty folder for the new library") : t("Open frutyfoto library"),
+    });
+    if (typeof dir === "string") store.openLibrary(dir, create);
   }
 
   const focus = (el: HTMLInputElement) => el.focus();
@@ -52,41 +57,41 @@
 
 <nav class="sidebar">
   <div class="brand">
-    <span class="logo">◒</span> frutyfoto
+    <img class="logo" src={logo} alt="" /> frutyfoto
   </div>
-  <button class="primary import" onclick={() => store.openImport()}>＋ Import photos</button>
+  <button class="primary import" onclick={() => store.openImport()}>＋ {t("Import photos")}</button>
 
   <div class="section">
     <button class="item" class:active={is({ kind: "library" })} onclick={() => store.setView({ kind: "library" })}>
-      <span>All photos</span><small>{store.counts.all}</small>
+      <span>{t("All photos")}</span><small>{store.counts.all}</small>
     </button>
     <button class="item" class:active={is({ kind: "favorites" })} onclick={() => store.setView({ kind: "favorites" })}>
-      <span>Favorites</span><small>{store.counts.favorites}</small>
+      <span>{t("Favorites")}</span><small>{store.counts.favorites}</small>
     </button>
     <button class="item" class:active={store.view.kind === "imports" || store.view.kind === "import"}
       onclick={() => store.setView({ kind: "imports" })}>
-      <span>Imports</span><small>{store.imports.length || ""}</small>
+      <span>{t("Imports")}</span><small>{store.imports.length || ""}</small>
     </button>
     <button class="item" class:active={store.view.kind === "marks" || store.view.kind === "mark"}
       onclick={() => store.setView({ kind: "marks" })}>
-      <span>Marks</span><small>{store.counts.marked || ""}</small>
+      <span>{t("Marks")}</span><small>{store.counts.marked || ""}</small>
     </button>
     <button class="item" class:active={is({ kind: "duplicates" })} onclick={() => store.setView({ kind: "duplicates" })}>
-      <span>Duplicates</span>
+      <span>{t("Duplicates")}</span>
     </button>
     <button class="item" class:active={is({ kind: "trash" })} onclick={() => store.setView({ kind: "trash" })}>
-      <span>Trash</span><small>{store.counts.trash || ""}</small>
+      <span>{t("Trash")}</span><small>{store.counts.trash || ""}</small>
     </button>
   </div>
 
   <div class="section">
     <div class="heading">
-      Albums <button class="icon" title="New album" onclick={() => (newAlbum = "")}>＋</button>
+      {t("Albums")} <button class="icon" title={t("New album")} onclick={() => (newAlbum = "")}>＋</button>
     </div>
     {#if newAlbum != null}
       <input
         class="inline"
-        placeholder="Album name"
+        placeholder={t("Album name")}
         bind:value={newAlbum}
         use:focus
         onblur={createAlbum}
@@ -126,41 +131,46 @@
           ondragleave={() => (dropTarget = null)}
           ondrop={(e) => drop(e, a.id)}>
           {#if a.cover}<img src={src(a.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
-          <span class="name" title="Double-click to rename">{a.name}</span>
+          <span class="name" title={t("Double-click to rename")}>{a.name}</span>
           <small>{a.count}</small>
-          <button class="icon del" title="Delete album" onclick={(e) => {
+          <button class="icon del" title={t("Delete album")} onclick={(e) => {
             e.stopPropagation();
             deleteAlbum(a.id, a.name);
           }}>×</button>
         </div>
       {/if}
     {:else}
-      {#if newAlbum == null}<p class="hint">Drag photos onto an album to add them.</p>{/if}
+      {#if newAlbum == null}<p class="hint">{t("Drag photos onto an album to add them.")}</p>{/if}
     {/each}
   </div>
 
   <div class="section tags">
-    <div class="heading">Tags</div>
-    {#each store.tags as t (t.id)}
-      <button class="item" class:active={is({ kind: "tag", id: t.id })} onclick={() => store.setView({ kind: "tag", id: t.id })}>
-        <span>#{t.name}</span><small>{t.count}</small>
+    <div class="heading">{t("Tags")}</div>
+    {#each store.tags as tag (tag.id)}
+      <button class="item" class:active={is({ kind: "tag", id: tag.id })} onclick={() => store.setView({ kind: "tag", id: tag.id })}>
+        <span>#{tag.name}</span><small>{tag.count}</small>
       </button>
     {:else}
-      <p class="hint">No tags yet. Select photos and press T.</p>
+      <p class="hint">{t("No tags yet. Select photos and press T.")}</p>
     {/each}
   </div>
 
   <div class="footer" title={store.root}>
     <span>📁 {basename(store.root ?? "")}</span>
-    <button class="link" onclick={switchLibrary}>Switch</button>
+    <button class="link" onclick={() => switchLibrary(true)}>{t("New")}</button>
+    <button class="link" onclick={() => switchLibrary(false)}>{t("Switch")}</button>
+    <select class="lang" value={i18n.locale} title="Language / 語言"
+      onchange={(e) => i18n.set(e.currentTarget.value as Locale)}>
+      {#each LOCALES as l (l.value)}<option value={l.value}>{l.label}</option>{/each}
+    </select>
   </div>
 </nav>
 
 <style>
   .sidebar { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--panel);
     border-right: 1px solid var(--border); overflow-y: auto; }
-  .brand { padding: 16px 16px 10px; font-weight: 700; font-size: 16px; }
-  .logo { color: var(--accent); }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 16px 16px 10px; font-weight: 700; font-size: 16px; }
+  .logo { width: 22px; height: 22px; }
   .import { margin: 0 12px 8px; }
   .section { padding: 8px 8px; border-top: 1px solid var(--border); }
   .heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px;
@@ -181,5 +191,6 @@
   .tags { flex: 1; }
   .footer { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border);
     font-size: 12px; color: var(--muted); }
+  .footer .lang { padding-inline: 4px; }
   .footer span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

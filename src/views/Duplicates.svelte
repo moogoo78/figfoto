@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { onMount } from "svelte";
   import { api, src } from "../lib/api";
   import { errorText, fmtBytes, fmtDateTime } from "../lib/format";
@@ -26,13 +27,13 @@
   const losers = (i: number) => groups![i].filter((p) => p.id !== keep[i]).map((p) => p.id);
 
   async function trashGroup(i: number) {
-    await store.mutate(() => api.trashPhotos(losers(i)), "Moved extras to trash");
+    await store.mutate(() => api.trashPhotos(losers(i)), t("Moved extras to trash"));
     scan();
   }
 
   async function trashAll() {
     const ids = groups!.flatMap((_, i) => losers(i));
-    await store.mutate(() => api.trashPhotos(ids), `Moved ${ids.length} photo(s) to trash`);
+    await store.mutate(() => api.trashPhotos(ids), t("Moved {n} photo(s) to trash", { n: ids.length }));
     scan();
   }
 
@@ -41,25 +42,25 @@
 
 <section class="dupes">
   <header>
-    <h1>Duplicates</h1>
-    <label title="Maximum number of differing bits between perceptual hashes">
-      Similarity
+    <h1>{t("Duplicates")}</h1>
+    <label title={t("Maximum number of differing bits between perceptual hashes")}>
+      {t("Similarity")}
       <input type="range" min="0" max="16" bind:value={threshold} onchange={scan} />
-      <span class="val">{threshold === 0 ? "identical look" : threshold <= 6 ? "very similar" : threshold <= 10 ? "similar" : "loose"} ({threshold})</span>
+      <span class="val">{t(threshold === 0 ? "identical look" : threshold <= 6 ? "very similar" : threshold <= 10 ? "similar" : "loose")} ({threshold})</span>
     </label>
     <span class="grow"></span>
     {#if groups?.length}
-      <button class="danger" onclick={trashAll}>Trash all extras</button>
+      <button class="danger" onclick={trashAll}>{t("Trash all extras")}</button>
     {/if}
   </header>
 
   <div class="body">
     {#if scanning && !groups}
-      <p class="empty">Scanning…</p>
+      <p class="empty">{t("Scanning…")}</p>
     {:else if groups && groups.length === 0}
-      <p class="empty">No similar photos found. Exact duplicates are already skipped during import.</p>
+      <p class="empty">{t("No similar photos found. Exact duplicates are already skipped during import.")}</p>
     {:else if groups}
-      <p class="hint">{groups.length} group(s). Pick the photo to keep in each group; the others go to trash.</p>
+      <p class="hint">{t("{n} group(s). Pick the photo to keep in each group; the others go to trash.", { n: groups.length })}</p>
       {#each groups as group, i (group.map((p) => p.id).join())}
         <div class="group">
           <div class="cards">
@@ -76,7 +77,7 @@
               </label>
             {/each}
           </div>
-          <button onclick={() => trashGroup(i)}>Keep selected, trash {group.length - 1}</button>
+          <button onclick={() => trashGroup(i)}>{t("Keep selected, trash {n}", { n: group.length - 1 })}</button>
         </div>
       {/each}
     {/if}

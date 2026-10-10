@@ -1,6 +1,7 @@
 import { SvelteSet } from "svelte/reactivity";
 import { api } from "./api";
 import { errorText } from "./format";
+import { t } from "./i18n.svelte";
 import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, Sort, Tag, View } from "./types";
 
 interface Toast {
@@ -132,7 +133,7 @@ class Store {
     const v = this.view;
     if (
       (v.kind === "album" && !albums.some((a) => a.id === v.id)) ||
-      (v.kind === "tag" && !tags.some((t) => t.id === v.id)) ||
+      (v.kind === "tag" && !tags.some((tag) => tag.id === v.id)) ||
       (v.kind === "import" && !imports.some((i) => i.id === v.id))
     ) {
       this.setView({ kind: "library" });
@@ -157,7 +158,7 @@ class Store {
 
   /** "Delete", the label given to a custom mark, or "Mark 2". */
   markName(mark: Mark): string {
-    return this.markSlot(mark)?.label || (mark === "x" ? "Delete" : `Mark ${mark}`);
+    return this.markSlot(mark)?.label || (mark === "x" ? t("Delete") : t("Mark {n}", { n: mark }));
   }
 
   /**
@@ -176,9 +177,9 @@ class Store {
     this.markProgress = null;
     try {
       const r = await api.runMark(mark);
-      const parts = [`${this.markName(mark)}: ${r.done} photo(s) done`];
-      if (r.skipped) parts.push(`${r.skipped} already there`);
-      if (r.errors.length) parts.push(`${r.errors.length} failed — ${r.errors.slice(0, 3).join("; ")}`);
+      const parts = [t("{name}: {n} photo(s) done", { name: this.markName(mark), n: r.done })];
+      if (r.skipped) parts.push(t("{n} already there", { n: r.skipped }));
+      if (r.errors.length) parts.push(`${t("{n} failed", { n: r.errors.length })} — ${r.errors.slice(0, 3).join("; ")}`);
       this.toast(parts.join(", "), r.errors.length > 0);
     } catch (e) {
       this.toast(errorText(e), true);
@@ -192,7 +193,7 @@ class Store {
   toast(text: string, error = false) {
     const id = ++this.#toastId;
     this.toasts.push({ id, text, error });
-    setTimeout(() => (this.toasts = this.toasts.filter((t) => t.id !== id)), error ? 6000 : 2500);
+    setTimeout(() => (this.toasts = this.toasts.filter((toast) => toast.id !== id)), error ? 6000 : 2500);
   }
 
   #onProgress(p: ImportProgress) {

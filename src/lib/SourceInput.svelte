@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { t } from "./i18n.svelte";
   import { SOURCE_SUGGESTIONS } from "./format";
   import { store } from "./store.svelte";
 
   let {
     onset,
     value = $bindable(""),
-    placeholder = "Source (LINE, Facebook…)",
+    placeholder,
     submitOnEnter = true,
   }: { onset?: (source: string) => void; value?: string; placeholder?: string; submitOnEnter?: boolean } = $props();
   const listId = `sources-${Math.random().toString(36).slice(2)}`;
@@ -15,7 +16,7 @@
 <input
   bind:value
   list={listId}
-  {placeholder}
+  placeholder={placeholder ?? t("Source (LINE, Facebook…)")}
   onkeydown={(e) => {
     if (e.key === "Enter" && submitOnEnter && onset) {
       onset(value.trim());
