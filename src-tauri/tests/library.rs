@@ -394,7 +394,7 @@ fn migration_links_existing_photos_to_their_import() {
     assert_eq!(import_of("h2"), Some(2));
 }
 
-// ---- album folders, marks, sources ----
+// ---- albums, marks, sources ----
 
 fn rel_of(lib: &Library, id: i64) -> String {
     queries::get_photo(lib, id).unwrap().photo.rel_path
@@ -411,78 +411,50 @@ fn three_photos(lib: &Library, src: &Path) -> Vec<i64> {
 }
 
 #[test]
-fn album_photos_are_stored_in_album_folders() {
+fn albums_never_move_files_and_share_photos() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
     let trip = queries::create_album(&lib, "Trip: Kyoto/Osaka").unwrap();
     let best = queries::create_album(&lib, "Best").unwrap();
 
+    // One photo in two albums; files stay in their date folder throughout.
     queries::add_to_album(&lib, trip, &ids[..2]).unwrap();
-    assert_eq!(rel_of(&lib, ids[0]), "albums/Trip_ Kyoto_Osaka/p0.jpg");
-    assert!(lib.root.join("albums/Trip_ Kyoto_Osaka/p1.jpg").is_file());
-    assert!(!lib.root.join("originals/2021/07/15/p0.jpg").exists());
-    assert_eq!(rel_of(&lib, ids[2]), "originals/2021/07/15/p2.jpg", "not in an album");
-
-    // A second album only links; the file stays in its first album's folder.
     queries::add_to_album(&lib, best, &ids[..1]).unwrap();
-    assert_eq!(rel_of(&lib, ids[0]), "albums/Trip_ Kyoto_Osaka/p0.jpg");
-
-    // Renaming the album renames its folder.
+    assert_eq!(queries::get_photo(&lib, ids[0]).unwrap().albums.len(), 2);
     queries::rename_album(&lib, trip, "Japan").unwrap();
-    assert_eq!(rel_of(&lib, ids[0]), "albums/Japan/p0.jpg");
-    assert!(lib.root.join("albums/Japan/p1.jpg").is_file());
-    assert!(!lib.root.join("albums/Trip_ Kyoto_Osaka").exists());
-
-    // Trashed album photos keep their place inside the trash and follow renames too.
-    queries::trash_photos(&lib, &[ids[1]]).unwrap();
-    assert!(lib.trash_dir().join("albums/Japan/p1.jpg").is_file());
-    queries::rename_album(&lib, trip, "Japan 2021").unwrap();
-    assert!(lib.trash_dir().join("albums/Japan 2021/p1.jpg").is_file());
-    queries::restore_photos(&lib, &[ids[1]]).unwrap();
-    assert!(lib.root.join("albums/Japan 2021/p1.jpg").is_file());
-
-    // Leaving the home album moves the file to the next album it's in...
     queries::remove_from_album(&lib, trip, &[ids[0]]).unwrap();
-    assert_eq!(rel_of(&lib, ids[0]), "albums/Best/p0.jpg");
-    // ...or back to originals by date.
     queries::delete_album(&lib, best).unwrap();
-    assert_eq!(rel_of(&lib, ids[0]), "originals/2021/07/15/p0.jpg");
-    assert!(!lib.root.join("albums/Best").exists(), "empty album folder removed");
-    queries::delete_album(&lib, trip).unwrap();
-    assert_eq!(rel_of(&lib, ids[1]), "originals/2021/07/15/p1.jpg");
-
-    for id in &ids {
-        let p = queries::get_photo(&lib, *id).unwrap().photo;
-        assert!(Path::new(&p.path).is_file(), "{} exists", p.path);
+    for (i, id) in ids.iter().enumerate() {
+        assert_eq!(rel_of(&lib, *id), format!("originals/2021/07/15/p{i}.jpg"));
     }
+    assert!(!lib.root.join("albums").exists());
+    assert_eq!(queries::get_photo(&lib, ids[1]).unwrap().albums.len(), 1);
 }
 
 #[test]
-fn same_named_files_get_unique_names_in_an_album() {
-    let Env { _tmp, src, lib } = env();
-    write(&src.join("a/IMG_1.jpg"), &with_exif(jpeg_bytes(&picture(0, 64, 64), 90), "2021:01:01 00:00:00", "Cam"));
-    write(&src.join("b/IMG_1.jpg"), &with_exif(jpeg_bytes(&picture(1, 64, 64), 90), "2022:01:01 00:00:00", "Cam"));
-    import_all(&lib, &src);
-    let ids: Vec<i64> =
-        queries::list_photos(&lib, &Filter::default(), Sort::TakenAsc, 0, 10).unwrap().iter().map(|p| p.id).collect();
-    let album = queries::create_album(&lib, "Mix").unwrap();
-    queries::add_to_album(&lib, album, &ids).unwrap();
-    let mut rels: Vec<_> = ids.iter().map(|id| rel_of(&lib, *id)).collect();
-    rels.sort();
-    assert_eq!(rels, vec!["albums/Mix/IMG_1-1.jpg", "albums/Mix/IMG_1.jpg"]);
-}
-
-#[test]
-fn existing_album_photos_are_moved_into_folders_on_open() {
+fn photos_in_old_album_folders_move_to_date_folders() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
-    let album = queries::create_album(&lib, "Old").unwrap();
-    // As an older version would have left it: linked, but the file still in originals.
-    lib.conn().execute("INSERT INTO album_photos (album_id, photo_id) VALUES (?1, ?2)", [album, ids[0]]).unwrap();
-    assert_eq!(frutyfoto_lib::storage::rehome_all(&lib).unwrap(), 1);
-    assert_eq!(rel_of(&lib, ids[0]), "albums/Old/p0.jpg");
-    assert!(lib.root.join("albums/Old/p0.jpg").is_file());
-    assert_eq!(frutyfoto_lib::storage::rehome_all(&lib).unwrap(), 0);
+    // As the album-folder layout left them: one live photo and one trashed one under albums/.
+    for (id, base, name) in [(ids[0], lib.root.clone(), "p0.jpg"), (ids[1], lib.trash_dir(), "p1.jpg")] {
+        let to = base.join("albums/Old").join(name);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        if base == lib.trash_dir() {
+            queries::trash_photos(&lib, &[id]).unwrap();
+        }
+        let from = queries::get_photo(&lib, id).unwrap().photo.path;
+        std::fs::rename(from, &to).unwrap();
+        lib.conn().execute("UPDATE photos SET rel_path = ?1 WHERE id = ?2", rusqlite::params![format!("albums/Old/{name}"), id]).unwrap();
+    }
+    // A same-named file already in the date folder gets a unique name instead of being overwritten.
+    write(&lib.root.join("originals/2021/07/15/p0.jpg"), b"other");
+
+    assert_eq!(frutyfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 2);
+    assert_eq!(rel_of(&lib, ids[0]), "originals/2021/07/15/p0-1.jpg");
+    assert_eq!(rel_of(&lib, ids[1]), "originals/2021/07/15/p1.jpg");
+    assert!(lib.trash_dir().join("originals/2021/07/15/p1.jpg").is_file());
+    assert!(!lib.root.join("albums").exists() && !lib.trash_dir().join("albums").exists());
+    assert_eq!(frutyfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 0);
 }
 
 #[test]
@@ -525,7 +497,7 @@ fn marks_are_set_filtered_and_run() {
     assert_eq!((r.done, r.skipped), (0, 1));
     assert!(!out.join("2021/07/15/p1-1.jpg").exists());
 
-    // 2 -> album (moves files into its folder), 3 -> tag.
+    // 2 -> album, 3 -> tag.
     let album = queries::create_album(&lib, "Picks").unwrap();
     marks::set_action(&lib, 2, "", Some(ActionKind::Album), &album.to_string()).unwrap();
     marks::set_action(&lib, 3, "", Some(ActionKind::Tag), "keeper").unwrap();
@@ -533,7 +505,7 @@ fn marks_are_set_filtered_and_run() {
     marks::set_mark(&lib, &ids[2..], Some("3")).unwrap();
     marks::run(&lib, "2", |_, _| {}).unwrap();
     marks::run(&lib, "3", |_, _| {}).unwrap();
-    assert_eq!(rel_of(&lib, ids[1]), "albums/Picks/p1.jpg");
+    assert_eq!(queries::get_photo(&lib, ids[1]).unwrap().albums[0].name, "Picks");
     assert_eq!(queries::get_photo(&lib, ids[2]).unwrap().tags[0].name, "keeper");
 
     // Removing an action setup.
@@ -598,7 +570,6 @@ fn emptying_trash_hands_files_to_the_system_trash() {
     d.sort();
     assert_eq!(d, vec!["p0.jpg", "p1.jpg"]);
     // Empty folders left in the trash are cleaned up.
-    assert_eq!(std::fs::read_dir(lib.trash_dir().join("albums")).unwrap().count(), 0);
     assert_eq!(std::fs::read_dir(lib.trash_dir().join("originals")).unwrap().count(), 0);
 }
 

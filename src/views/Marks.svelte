@@ -29,7 +29,7 @@
       case "copy": return slot.target ? t("Copy to {target}", { target: slot.target }) : t("Choose a folder");
       case "album": {
         const a = store.albums.find((a) => String(a.id) === slot.target);
-        return a ? t("Add to album “{name}” (files move into its folder)", { name: a.name }) : t("Choose an album");
+        return a ? t("Add to album “{name}”", { name: a.name }) : t("Choose an album");
       }
       case "tag": return slot.target ? t("Tag with #{tag}", { tag: slot.target }) : t("Enter a tag");
       default: return t("Not set up");

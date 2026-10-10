@@ -177,10 +177,7 @@ pub fn run(lib: &Library, mark: &str, on_progress: impl Fn(usize, usize)) -> Res
         ActionKind::Trash => queries::trash_photos(lib, &ids)?,
         ActionKind::Album => {
             let album: i64 = slot.target.parse().map_err(|_| AppError::msg("no album chosen for this mark"))?;
-            if let Err(e) = queries::add_to_album(lib, album, &ids) {
-                // Membership is recorded even if some files couldn't be moved into the folder.
-                result.errors.push(e.to_string());
-            }
+            queries::add_to_album(lib, album, &ids)?
         }
         ActionKind::Tag => {
             if slot.target.trim().is_empty() {
@@ -215,8 +212,8 @@ pub fn run(lib: &Library, mark: &str, on_progress: impl Fn(usize, usize)) -> Res
     Ok(result)
 }
 
-/// Copies a photo to `target`, keeping its folder below `albums/` or `originals/`
-/// (e.g. `Trip/a.jpg`, `2024/07/15/a.jpg`). Returns false if an identical copy is already there.
+/// Copies a photo to `target`, keeping its date folder below `originals/`
+/// (e.g. `2024/07/15/a.jpg`). Returns false if an identical copy is already there.
 fn copy_out(lib: &Library, rel: &str, name: &str, hash: &str, target: &Path) -> Result<bool> {
     let src = lib.photo_path(rel, false);
     let sub = rel.split_once('/').map(|(_, rest)| rest).unwrap_or(rel);

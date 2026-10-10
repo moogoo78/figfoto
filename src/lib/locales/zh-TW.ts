@@ -175,7 +175,7 @@ export const zhTW: Record<string, string> = {
   "Move to the library trash (restorable)": "移到圖庫的垃圾桶（可復原）",
   "Copy to {target}": "複製到 {target}",
   "Choose a folder": "請選擇資料夾",
-  "Add to album “{name}” (files move into its folder)": "加入相簿「{name}」（檔案會移到該相簿的資料夾）",
+  "Add to album “{name}”": "加入相簿「{name}」",
   "Choose an album": "請選擇相簿",
   "Tag with #{tag}": "加上標籤 #{tag}",
   "Enter a tag": "請輸入標籤",

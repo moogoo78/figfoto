@@ -36,7 +36,7 @@ impl Library {
             }
         }
         let root = root.to_path_buf();
-        for dir in ["originals", "albums", ".frutyfoto/thumbs", ".frutyfoto/previews", ".frutyfoto/trash"] {
+        for dir in ["originals", ".frutyfoto/thumbs", ".frutyfoto/previews", ".frutyfoto/trash"] {
             std::fs::create_dir_all(root.join(dir))?;
         }
         let conn = db::open(&db_path)?;
@@ -51,7 +51,7 @@ impl Library {
         self.root.join("originals")
     }
 
-    /// Photos that belong to an album are stored in `albums/<album folder>/`.
+    /// Where older libraries stored album photos; emptied when the library opens.
     pub fn albums_dir(&self) -> PathBuf {
         self.root.join("albums")
     }

@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AppError, Result};
 use crate::import::now;
 use crate::library::Library;
-use crate::storage;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -440,28 +439,14 @@ pub fn rename_album(lib: &Library, id: i64, name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(AppError::msg("album name is empty"));
     }
-    storage::rename_album_dir(lib, id, name)?;
     lib.conn().execute("UPDATE albums SET name = ?1 WHERE id = ?2", params![name, id])?;
     Ok(())
 }
 
-/// Deletes an album; its photos move back to `originals/` (or to another album they're in).
+/// Deletes an album; its photos stay in the library.
 pub fn delete_album(lib: &Library, id: i64) -> Result<()> {
-    let ids = album_photo_ids(lib, id)?;
-    let dir: Option<String> = lib.conn().query_row("SELECT dir FROM albums WHERE id = ?1", [id], |r| r.get(0))?;
     lib.conn().execute("DELETE FROM albums WHERE id = ?1", [id])?;
-    let moved = storage::rehome(lib, &ids);
-    if let Some(dir) = dir {
-        storage::remove_album_dir(lib, &dir);
-    }
-    moved
-}
-
-fn album_photo_ids(lib: &Library, album_id: i64) -> Result<Vec<i64>> {
-    let conn = lib.conn();
-    let mut stmt = conn.prepare("SELECT photo_id FROM album_photos WHERE album_id = ?1")?;
-    let rows = stmt.query_map([album_id], |r| r.get(0))?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    Ok(())
 }
 
 pub fn add_to_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()> {
@@ -479,8 +464,7 @@ pub fn add_to_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()> {
         )? as i64;
     }
     tx.commit()?;
-    drop(conn);
-    storage::rehome(lib, ids)
+    Ok(())
 }
 
 pub fn remove_from_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()> {
@@ -488,7 +472,7 @@ pub fn remove_from_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()
         &format!("DELETE FROM album_photos WHERE album_id = ?1 AND photo_id IN ({})", id_list(ids)),
         [album_id],
     )?;
-    storage::rehome(lib, ids)
+    Ok(())
 }
 
 pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()> {

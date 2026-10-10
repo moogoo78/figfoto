@@ -69,11 +69,11 @@ fn activate(app: &AppHandle, root: &Path, create: bool) -> Result<LibraryInfo> {
     for dir in lib.served_dirs() {
         scope.allow_directory(&dir, true).map_err(|e| AppError::msg(e.to_string()))?;
     }
-    // Albums made before album folders existed: move their photos into the folders.
-    match crate::storage::rehome_all(&lib) {
+    // Libraries from when albums were folders: move those photos back to date folders.
+    match crate::storage::move_out_of_album_folders(&lib) {
         Ok(0) => {}
-        Ok(n) => eprintln!("moved {n} photo(s) into album folders"),
-        Err(e) => eprintln!("moving photos into album folders failed: {e}"),
+        Ok(n) => eprintln!("moved {n} photo(s) from album folders to date folders"),
+        Err(e) => eprintln!("moving photos out of album folders failed: {e}"),
     }
     let info = LibraryInfo { root: lib.root.to_string_lossy().into_owned() };
     let lib = Arc::new(lib);

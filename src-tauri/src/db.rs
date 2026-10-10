@@ -120,6 +120,13 @@ CREATE TABLE mark_actions (
 CREATE INDEX idx_photos_live_taken ON photos(trashed_at, taken_at, id);
 CREATE INDEX idx_photos_live_imported ON photos(trashed_at, imported_at, id);
 "#,
+    // v5: albums are no longer folders on disk (files stay in originals/YYYY/MM/DD), so
+    // photos.home_album_id and albums.dir are unused. Kept as columns: SQLite can't drop
+    // a column with a foreign key.
+    r#"
+UPDATE photos SET home_album_id = NULL;
+UPDATE albums SET dir = NULL;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
