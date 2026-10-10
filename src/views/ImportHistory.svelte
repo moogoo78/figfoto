@@ -64,6 +64,7 @@
           <div class="stats">
             <span class="ok">{t("{n} added", { n: imp.added })}</span>
             <span>{t("{n} already in library", { n: imp.skippedDupes })}</span>
+            {#if imp.skippedDeleted}<span>{t("{n} previously deleted", { n: imp.skippedDeleted })}</span>{/if}
             {#if imp.failed}
               <button class="link bad" onclick={() => toggleErrors(imp.id)}>
                 {t("{n} failed", { n: imp.failed })} {errors[imp.id] ? "▴" : "▾"}

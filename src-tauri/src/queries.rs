@@ -539,6 +539,8 @@ pub struct ImportRecord {
     pub finished_at: Option<String>,
     pub added: i64,
     pub skipped_dupes: i64,
+    /// Skipped because they had been deleted from the library before.
+    pub skipped_deleted: i64,
     pub failed: i64,
     pub cancelled: bool,
     /// Folders were turned into albums.
@@ -551,14 +553,14 @@ pub struct ImportRecord {
 pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
-        "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled, i.folder_albums,
+        "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled, i.folder_albums, i.skipped_deleted,
             (SELECT COUNT(*) FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL),
             (SELECT p.hash FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL
                ORDER BY p.taken_at LIMIT 1)
          FROM imports i ORDER BY i.id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        let cover: Option<String> = r.get(10)?;
+        let cover: Option<String> = r.get(11)?;
         Ok(ImportRecord {
             id: r.get(0)?,
             source_dir: r.get(1)?,
@@ -569,7 +571,8 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
             failed: r.get(6)?,
             cancelled: r.get(7)?,
             folder_albums: r.get(8)?,
-            photo_count: r.get(9)?,
+            skipped_deleted: r.get(9)?,
+            photo_count: r.get(10)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
         })
     })?;
@@ -655,20 +658,28 @@ pub fn empty_trash(lib: &Library) -> Result<usize> {
 
 /// `empty_trash` with a custom way of disposing of each file (tests avoid the real Trash).
 pub fn empty_trash_with(lib: &Library, discard: impl Fn(&std::path::Path) -> Result<()>) -> Result<usize> {
-    let items: Vec<(i64, String, String)> = {
+    let items: Vec<(i64, String, String, String)> = {
         let conn = lib.conn();
-        let mut stmt = conn.prepare("SELECT id, rel_path, hash FROM photos WHERE trashed_at IS NOT NULL")?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let mut stmt = conn.prepare("SELECT id, rel_path, hash, orig_name FROM photos WHERE trashed_at IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
-    for (id, rel, hash) in &items {
+    for (id, rel, hash, name) in &items {
         let path = lib.photo_path(rel, true);
         if path.exists() {
             discard(&path)?;
         }
         let _ = std::fs::remove_file(lib.thumb_path(hash));
         let _ = std::fs::remove_file(lib.preview_path(hash));
-        lib.conn().execute("DELETE FROM photos WHERE id = ?1", [id])?;
+        // Remember the content so importing the same file again (e.g. from the SD card) skips it.
+        let mut conn = lib.conn();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO deleted_hashes (hash, orig_name, deleted_at) VALUES (?1, ?2, ?3)",
+            params![hash, name, now()],
+        )?;
+        tx.execute("DELETE FROM photos WHERE id = ?1", [id])?;
+        tx.commit()?;
     }
     for dir in ["originals", "albums"] {
         prune_tree(&lib.trash_dir().join(dir));

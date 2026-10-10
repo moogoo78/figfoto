@@ -10,8 +10,8 @@ export const api = {
   openLibrary: (path: string, create: boolean) => invoke<{ root: string }>("open_library", { path, create }),
   currentLibrary: () => invoke<{ root: string } | null>("current_library"),
 
-  startImport: (src: string, source: string, folderAlbums: boolean) =>
-    invoke<void>("start_import", { src, source: source || null, folderAlbums }),
+  startImport: (src: string, source: string, folderAlbums: boolean, includeDeleted: boolean) =>
+    invoke<void>("start_import", { src, source: source || null, folderAlbums, includeDeleted }),
   cancelImport: () => invoke<void>("cancel_import"),
   listImports: () => invoke<ImportRecord[]>("list_imports"),
   importErrors: (importId: number) => invoke<{ path: string; error: string }[]>("import_errors", { importId }),

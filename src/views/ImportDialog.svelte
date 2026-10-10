@@ -11,6 +11,8 @@
   let origin = $state("");
   /** Organized folders: each folder holding photos becomes an album. */
   let folderAlbums = $state(false);
+  /** Also bring back photos that were deleted from the library (trash emptied) before. */
+  let includeDeleted = $state(false);
   let started = $state(false);
 
   // "Import again" from the history view prefills the folder.
@@ -34,7 +36,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin, folderAlbums);
+      await api.startImport(source, origin, folderAlbums, includeDeleted);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -44,6 +46,7 @@
   function close() {
     if (running) return;
     started = false;
+    includeDeleted = false;
     store.importOpen = false;
   }
 </script>
@@ -84,6 +87,10 @@
           <span>{t("Source")} <small>{t("(optional — e.g. photos saved from LINE or Facebook)")}</small></span>
           <SourceInput bind:value={origin} submitOnEnter={false} placeholder={t("Camera / phone detected automatically")} />
         </label>
+        <label class="check">
+          <input type="checkbox" bind:checked={includeDeleted} />
+          <span>{t("Include previously deleted photos")} <small>{t("(normally, photos you deleted from the library are skipped)")}</small></span>
+        </label>
         <div class="buttons">
           <button onclick={close}>{t("Cancel")}</button>
           <button class="primary" disabled={!source} onclick={start}>{t("Import")}</button>
@@ -98,6 +105,7 @@
           {/if}
           <span class="ok">{t("{n} added", { n: p?.added ?? 0 })}</span>
           <span>{t("{n} already in library", { n: p?.skipped ?? 0 })}</span>
+          {#if p?.skippedDeleted}<span>{t("{n} previously deleted", { n: p.skippedDeleted })}</span>{/if}
           {#if p?.albums}<span>{t("{n} album(s)", { n: p.albums })}</span>{/if}
           {#if p?.failed}<span class="bad">{t("{n} failed", { n: p.failed })}</span>{/if}
         </div>
@@ -120,7 +128,7 @@
           {#if running}
             <button onclick={() => api.cancelImport()}>{t("Stop")}</button>
           {:else}
-            <button onclick={() => { started = false; source = ""; origin = ""; }}>{t("Import more")}</button>
+            <button onclick={() => { started = false; source = ""; origin = ""; includeDeleted = false; }}>{t("Import more")}</button>
             <button class="primary" onclick={close}>{t("Done")}</button>
           {/if}
         </div>
@@ -147,6 +155,8 @@
   .origin { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 13px; }
   .origin small { color: var(--muted); }
   .origin :global(input) { width: 100%; }
+  .check { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; font-size: 13px; cursor: pointer; }
+  .check small { color: var(--muted); }
   .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
   .bar { height: 8px; border-radius: 4px; background: var(--cell); overflow: hidden; }
   .bar div { height: 100%; background: var(--accent); transition: width 0.2s; }

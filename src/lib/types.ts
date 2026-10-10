@@ -92,6 +92,8 @@ export interface ImportRecord {
   finishedAt: string | null;
   added: number;
   skippedDupes: number;
+  /** Skipped because they had been deleted from the library before. */
+  skippedDeleted: number;
   failed: number;
   cancelled: boolean;
   /** Each source folder was turned into an album. */
@@ -107,6 +109,8 @@ export interface ImportProgress {
   done: number;
   added: number;
   skipped: number;
+  /** Skipped because they had been deleted from the library before. */
+  skippedDeleted: number;
   failed: number;
   current: string;
   /** Still walking the folder; `total` is the count found so far. */

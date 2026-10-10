@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use chrono::{Local, NaiveDate, TimeZone};
 use exif::experimental::Writer;
 use exif::{Field, In, Tag, Value};
-use frutyfoto_lib::import::{self, hash_file, ImportProgress};
+use frutyfoto_lib::import::{self, hash_file, ImportOptions, ImportProgress};
 use frutyfoto_lib::library::Library;
 use frutyfoto_lib::queries::{self, Filter, Sort};
 use image::codecs::jpeg::JpegEncoder;
@@ -61,7 +61,7 @@ fn write(path: &Path, bytes: &[u8]) {
 }
 
 fn import_all(lib: &Library, src: &Path) -> ImportProgress {
-    import::run(lib, src, None, false, &AtomicBool::new(false), |_| {}).unwrap()
+    import::run(lib, src, &ImportOptions::default(), &AtomicBool::new(false), |_| {}).unwrap()
 }
 
 struct Env {
@@ -139,7 +139,7 @@ fn import_organises_by_date_and_skips_duplicates() {
 #[test]
 fn refuses_to_import_the_library_itself() {
     let Env { _tmp, lib, .. } = env();
-    let err = import::run(&lib, &lib.root.join("originals"), None, false, &AtomicBool::new(false), |_| {});
+    let err = import::run(&lib, &lib.root.join("originals"), &ImportOptions::default(), &AtomicBool::new(false), |_| {});
     assert!(err.is_err());
 }
 
@@ -241,8 +241,8 @@ fn trash_restore_and_empty() {
     let c = queries::counts(&lib).unwrap();
     assert_eq!((c.all, c.trash), (1, 0));
 
-    // A deleted photo can be imported again.
-    assert_eq!(import_all(&lib, &src).added, 1);
+    // A deleted photo isn't imported again by default (see deleted_photos_are_not_imported_again).
+    assert_eq!(import_all(&lib, &src).skipped_deleted, 1);
 }
 
 #[test]
@@ -530,7 +530,7 @@ fn sources_and_device_kind() {
     import_all(&lib, &src.join("cam"));
     // Photos saved from a chat app have no EXIF; label the whole import.
     write(&src.join("line/c.jpg"), &jpeg_bytes(&picture(2, 64, 64), 90));
-    import::run(&lib, &src.join("line"), Some(" LINE "), false, &AtomicBool::new(false), |_| {}).unwrap();
+    import::run(&lib, &src.join("line"), &ImportOptions { source: Some(" LINE "), ..Default::default() }, &AtomicBool::new(false), |_| {}).unwrap();
 
     let names = |origin: &str| -> Vec<String> {
         let f = Filter { origin: Some(origin.into()), ..Default::default() };
@@ -574,6 +574,28 @@ fn emptying_trash_hands_files_to_the_system_trash() {
 }
 
 #[test]
+fn deleted_photos_are_not_imported_again() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    queries::trash_photos(&lib, &ids[..2]).unwrap();
+    // Still in the trash: counts as already in the library.
+    assert_eq!(import_all(&lib, &src).skipped, 3);
+    empty_trash(&lib).unwrap();
+
+    // Same card again: the emptied photos stay out.
+    let p = import_all(&lib, &src);
+    assert_eq!((p.added, p.skipped, p.skipped_deleted), (0, 1, 2));
+    assert_eq!(queries::list_imports(&lib).unwrap()[0].skipped_deleted, 2);
+
+    // Unless asked for; once back, they're ordinary library photos again.
+    let opts = ImportOptions { include_deleted: true, ..Default::default() };
+    let p = import::run(&lib, &src, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!((p.added, p.skipped, p.skipped_deleted), (2, 1, 0));
+    let p = import_all(&lib, &src);
+    assert_eq!((p.added, p.skipped, p.skipped_deleted), (0, 3, 0));
+}
+
+#[test]
 fn skips_hidden_nas_and_trash_entries() {
     let Env { _tmp, src, lib } = env();
     write(&src.join("keep.jpg"), &jpeg_bytes(&picture(0, 64, 64), 90));
@@ -591,8 +613,8 @@ fn refuses_the_library_through_a_symlink() {
     let Env { _tmp, src, lib } = env();
     let link = src.join("lib-link");
     std::os::unix::fs::symlink(&lib.root, &link).unwrap();
-    assert!(import::run(&lib, &link, None, false, &AtomicBool::new(false), |_| {}).is_err());
-    assert!(import::run(&lib, &link.join("originals/.."), None, false, &AtomicBool::new(false), |_| {}).is_err());
+    assert!(import::run(&lib, &link, &ImportOptions::default(), &AtomicBool::new(false), |_| {}).is_err());
+    assert!(import::run(&lib, &link.join("originals/.."), &ImportOptions::default(), &AtomicBool::new(false), |_| {}).is_err());
 }
 
 #[test]
@@ -620,7 +642,7 @@ fn progress_reports_scanning_and_caps_errors() {
         write(&src.join(format!("broken-{i}.jpg")), format!("not a jpeg {i}").as_bytes());
     }
     let events = std::sync::Mutex::new(Vec::new());
-    let p = import::run(&lib, &src, None, false, &AtomicBool::new(false), |p| events.lock().unwrap().push(p.clone())).unwrap();
+    let p = import::run(&lib, &src, &ImportOptions::default(), &AtomicBool::new(false), |p| events.lock().unwrap().push(p.clone())).unwrap();
     let events = events.into_inner().unwrap();
 
     assert!(events[0].scanning && !events.last().unwrap().scanning);
@@ -650,7 +672,7 @@ fn organized_folders_become_albums() {
     write(&tree.join("2019 Kyoto/old copy.jpg"), &photo(0, 1));
     write(&tree.join("2020 Bali/beach/c.jpg"), &photo(3, 4));
     write(&tree.join("loose.jpg"), &photo(4, 5));
-    let run = |albums: bool| import::run(&lib, &tree, None, albums, &AtomicBool::new(false), |_| {}).unwrap();
+    let run = |albums: bool| import::run(&lib, &tree, &ImportOptions { folder_albums: albums, ..Default::default() }, &AtomicBool::new(false), |_| {}).unwrap();
 
     let p = run(true);
     assert_eq!((p.added, p.skipped, p.albums), (4, 1, 2));

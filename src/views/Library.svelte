@@ -93,7 +93,7 @@
   }
 
   async function emptyTrash() {
-    const msg = t("Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them.", { n: store.counts.trash });
+    const msg = t("Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them. Importing the same photos again will skip them.", { n: store.counts.trash });
     if (!(await ask(msg, { title: t("Empty trash"), kind: "warning" }))) return;
     store.mutate(() => api.emptyTrash(), t("Moved to the system Trash"));
   }

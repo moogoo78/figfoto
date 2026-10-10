@@ -65,8 +65,8 @@ export const zhTW: Record<string, string> = {
   "Move {n} to trash": "將 {n} 張移到垃圾桶",
   "Run on {n}": "對 {n} 張執行",
   "Empty trash": "清空垃圾桶",
-  "Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them.":
-    "要從圖庫移除 {n} 張照片嗎？檔案會移到系統垃圾桶，仍可從那裡復原。",
+  "Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them. Importing the same photos again will skip them.":
+    "要從圖庫移除 {n} 張照片嗎？檔案會移到系統垃圾桶，仍可從那裡復原。之後再次匯入相同的照片時會略過它們。",
   "Moved to the system Trash": "已移到系統垃圾桶",
   "{n} selected": "已選取 {n} 張",
   Mark: "標記",
@@ -144,6 +144,9 @@ export const zhTW: Record<string, string> = {
   "Each folder that holds photos becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy. Photos directly in the chosen folder aren't put in an album.":
     "每個含有照片的資料夾都會成為同名相簿（已有同名相簿時會沿用）。已在圖庫中的照片會直接加入相簿，不會再複製一份。直接放在所選資料夾中的照片不會加入任何相簿。",
   "{n} album(s)": "{n} 個相簿",
+  "Include previously deleted photos": "包含先前刪除的照片",
+  "(normally, photos you deleted from the library are skipped)": "（預設會略過已從圖庫刪除的照片）",
+  "{n} previously deleted": "{n} 張先前已刪除",
   "Folders → albums": "資料夾 → 相簿",
   "Scanning… {n} photos found": "掃描中…已找到 {n} 張照片",
   "{n} added": "新增 {n} 張",

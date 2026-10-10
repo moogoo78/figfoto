@@ -35,6 +35,8 @@ pub struct ImportProgress {
     pub done: usize,
     pub added: usize,
     pub skipped: usize,
+    /// Skipped because they were deleted from the library before (trash emptied).
+    pub skipped_deleted: usize,
     pub failed: usize,
     pub current: String,
     /// Still walking the source folder; `total` is the count found so far.
@@ -52,9 +54,23 @@ pub struct ImportFailure {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ImportOptions<'a> {
+    /// Labels where the photos came from (e.g. "LINE").
+    pub source: Option<&'a str>,
+    /// Every folder below the source that holds photos becomes an album named after it
+    /// (an existing album of that name is reused); photos already in the library are added
+    /// to it too. Photos directly in the source folder go in no album.
+    pub folder_albums: bool,
+    /// Import photos even if they were deleted from the library before.
+    pub include_deleted: bool,
+}
+
 enum Outcome {
     Added,
     Duplicate,
+    /// Deleted from the library before; skipped unless `include_deleted`.
+    Deleted,
 }
 
 fn extension(path: &Path) -> Option<String> {
@@ -70,17 +86,13 @@ pub fn needs_preview(path: &Path) -> bool {
 }
 
 /// Copies every supported image under `src` into the library. Source files are only read.
-/// `source` optionally labels where the photos came from (e.g. "LINE").
-/// With `folder_albums`, every folder below `src` that holds photos becomes an album named
-/// after it (an existing album of that name is reused); photos already in the library are
-/// added to it too. Photos directly in `src` go in no album.
+/// See [`ImportOptions`] for what can be adjusted.
 /// `on_progress` is called (throttled) while running and once more when finished; it gets at
 /// most the last `MAX_SENT_ERRORS` errors, while the returned progress and the database keep all.
 pub fn run(
     lib: &Library,
     src: &Path,
-    source: Option<&str>,
-    folder_albums: bool,
+    opts: &ImportOptions,
     cancel: &AtomicBool,
     on_progress: impl Fn(&ImportProgress) + Sync,
 ) -> Result<ImportProgress> {
@@ -97,7 +109,7 @@ pub fn run(
         let conn = lib.conn();
         conn.execute(
             "INSERT INTO imports (source_dir, started_at, folder_albums) VALUES (?1, ?2, ?3)",
-            params![src.to_string_lossy(), now(), folder_albums],
+            params![src.to_string_lossy(), now(), opts.folder_albums],
         )?;
         conn.last_insert_rowid()
     };
@@ -144,8 +156,8 @@ pub fn run(
         }
     }
 
-    let source = source.map(str::trim).filter(|s| !s.is_empty());
-    let album_of = if folder_albums { folder_album_ids(lib, src, &files)? } else { HashMap::new() };
+    let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
+    let album_of = if opts.folder_albums { folder_album_ids(lib, src, &files)? } else { HashMap::new() };
     // Photos (by hash) that end up in each album, added once the copying is done.
     let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
@@ -159,9 +171,9 @@ pub fn run(
         if cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed) {
             return;
         }
-        let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, path, &claimed)))
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
-        if let (Ok((_, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
+        if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
             album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
         }
         let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
@@ -171,6 +183,7 @@ pub fn run(
         match result {
             Ok((Outcome::Added, _)) => p.added += 1,
             Ok((Outcome::Duplicate, _)) => p.skipped += 1,
+            Ok((Outcome::Deleted, _)) => p.skipped_deleted += 1,
             Err(e) => {
                 p.failed += 1;
                 let path = p.current.clone();
@@ -202,9 +215,10 @@ pub fn run(
         let mut conn = lib.conn();
         let tx = conn.transaction()?;
         tx.execute(
-            "UPDATE imports SET finished_at = ?1, added = ?2, skipped_dupes = ?3, failed = ?4, cancelled = ?5
-             WHERE id = ?6",
-            params![now(), p.added, p.skipped, p.failed, p.cancelled, import_id],
+            "UPDATE imports SET finished_at = ?1, added = ?2, skipped_dupes = ?3, failed = ?4, cancelled = ?5,
+                skipped_deleted = ?6
+             WHERE id = ?7",
+            params![now(), p.added, p.skipped, p.failed, p.cancelled, p.skipped_deleted, import_id],
         )?;
         for e in &p.errors {
             tx.execute(
@@ -249,6 +263,12 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
         .unwrap_or("unknown panic")
 }
 
+/// Whether a photo with this content was deleted from the library before.
+fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
+    let found = lib.conn().query_row("SELECT 1 FROM deleted_hashes WHERE hash = ?1", [hash], |_| Ok(())).optional()?;
+    Ok(found.is_some())
+}
+
 /// The album for each folder below `src` that directly holds one of `files`, keyed by folder.
 fn folder_album_ids(lib: &Library, src: &Path, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
     let mut out = HashMap::new();
@@ -287,6 +307,7 @@ fn import_one(
     lib: &Library,
     import_id: i64,
     source: Option<&str>,
+    include_deleted: bool,
     src: &Path,
     claimed: &Mutex<HashSet<String>>,
 ) -> Result<(Outcome, String)> {
@@ -305,6 +326,9 @@ fn import_one(
             .is_some();
         if exists {
             return Ok((Outcome::Duplicate, hash));
+        }
+        if !include_deleted && was_deleted(lib, &hash)? {
+            return Ok((Outcome::Deleted, hash));
         }
         claimed.insert(hash.clone());
     }
@@ -379,6 +403,8 @@ fn copy_and_index(lib: &Library, import_id: i64, source: Option<&str>, src: &Pat
             ],
         )
         .map_err(|e| cleanup(e.into()))?;
+    // Back in the library, so no longer "previously deleted".
+    lib.conn().execute("DELETE FROM deleted_hashes WHERE hash = ?1", [hash])?;
     Ok(())
 }
 

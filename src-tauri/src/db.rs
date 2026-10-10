@@ -131,6 +131,16 @@ UPDATE albums SET dir = NULL;
     r#"
 ALTER TABLE imports ADD COLUMN folder_albums INTEGER NOT NULL DEFAULT 0;
 "#,
+    // v7: content hashes of photos removed by emptying the trash, so importing the same
+    // files again skips them.
+    r#"
+CREATE TABLE deleted_hashes (
+    hash       TEXT PRIMARY KEY,
+    orig_name  TEXT NOT NULL,
+    deleted_at TEXT NOT NULL
+);
+ALTER TABLE imports ADD COLUMN skipped_deleted INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
