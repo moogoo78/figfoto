@@ -61,7 +61,7 @@ fn write(path: &Path, bytes: &[u8]) {
 }
 
 fn import_all(lib: &Library, src: &Path) -> ImportProgress {
-    import::run(lib, src, None, &AtomicBool::new(false), |_| {}).unwrap()
+    import::run(lib, src, None, false, &AtomicBool::new(false), |_| {}).unwrap()
 }
 
 struct Env {
@@ -139,7 +139,7 @@ fn import_organises_by_date_and_skips_duplicates() {
 #[test]
 fn refuses_to_import_the_library_itself() {
     let Env { _tmp, lib, .. } = env();
-    let err = import::run(&lib, &lib.root.join("originals"), None, &AtomicBool::new(false), |_| {});
+    let err = import::run(&lib, &lib.root.join("originals"), None, false, &AtomicBool::new(false), |_| {});
     assert!(err.is_err());
 }
 
@@ -530,7 +530,7 @@ fn sources_and_device_kind() {
     import_all(&lib, &src.join("cam"));
     // Photos saved from a chat app have no EXIF; label the whole import.
     write(&src.join("line/c.jpg"), &jpeg_bytes(&picture(2, 64, 64), 90));
-    import::run(&lib, &src.join("line"), Some(" LINE "), &AtomicBool::new(false), |_| {}).unwrap();
+    import::run(&lib, &src.join("line"), Some(" LINE "), false, &AtomicBool::new(false), |_| {}).unwrap();
 
     let names = |origin: &str| -> Vec<String> {
         let f = Filter { origin: Some(origin.into()), ..Default::default() };
@@ -591,8 +591,8 @@ fn refuses_the_library_through_a_symlink() {
     let Env { _tmp, src, lib } = env();
     let link = src.join("lib-link");
     std::os::unix::fs::symlink(&lib.root, &link).unwrap();
-    assert!(import::run(&lib, &link, None, &AtomicBool::new(false), |_| {}).is_err());
-    assert!(import::run(&lib, &link.join("originals/.."), None, &AtomicBool::new(false), |_| {}).is_err());
+    assert!(import::run(&lib, &link, None, false, &AtomicBool::new(false), |_| {}).is_err());
+    assert!(import::run(&lib, &link.join("originals/.."), None, false, &AtomicBool::new(false), |_| {}).is_err());
 }
 
 #[test]
@@ -620,7 +620,7 @@ fn progress_reports_scanning_and_caps_errors() {
         write(&src.join(format!("broken-{i}.jpg")), format!("not a jpeg {i}").as_bytes());
     }
     let events = std::sync::Mutex::new(Vec::new());
-    let p = import::run(&lib, &src, None, &AtomicBool::new(false), |p| events.lock().unwrap().push(p.clone())).unwrap();
+    let p = import::run(&lib, &src, None, false, &AtomicBool::new(false), |p| events.lock().unwrap().push(p.clone())).unwrap();
     let events = events.into_inner().unwrap();
 
     assert!(events[0].scanning && !events.last().unwrap().scanning);
@@ -633,6 +633,54 @@ fn progress_reports_scanning_and_caps_errors() {
 }
 
 // ---- large libraries ----
+
+#[test]
+fn organized_folders_become_albums() {
+    let Env { _tmp, src, lib } = env();
+    let photo = |i: u32, day: u32| with_exif(jpeg_bytes(&picture(i, 64, 64), 90), &format!("2021:07:{day:02} 10:00:00"), "Cam");
+    // Already in the library from an earlier (camera) import.
+    write(&src.join("card/old.jpg"), &photo(0, 1));
+    import_all(&lib, &src.join("card"));
+    // An existing album whose name differs only in case is reused.
+    let kyoto = queries::create_album(&lib, "2019 kyoto").unwrap();
+
+    let tree = src.join("my-fotos");
+    write(&tree.join("2019 Kyoto/a.jpg"), &photo(1, 3));
+    write(&tree.join("2019 Kyoto/b.jpg"), &photo(2, 2));
+    write(&tree.join("2019 Kyoto/old copy.jpg"), &photo(0, 1));
+    write(&tree.join("2020 Bali/beach/c.jpg"), &photo(3, 4));
+    write(&tree.join("loose.jpg"), &photo(4, 5));
+    let run = |albums: bool| import::run(&lib, &tree, None, albums, &AtomicBool::new(false), |_| {}).unwrap();
+
+    let p = run(true);
+    assert_eq!((p.added, p.skipped, p.albums), (4, 1, 2));
+    let summary = || -> Vec<(String, i64)> {
+        let mut a: Vec<_> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.count)).collect();
+        a.sort();
+        a
+    };
+    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1)]);
+    // Album order follows the date taken; the existing photo was linked, not copied again.
+    let in_kyoto: Vec<String> = queries::list_photos(&lib, &Filter { album_id: Some(kyoto), ..Default::default() }, Sort::TakenAsc, 0, 10)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.orig_name)
+        .collect();
+    assert_eq!(in_kyoto, vec!["old.jpg", "b.jpg", "a.jpg"]);
+    assert_eq!(queries::counts(&lib).unwrap().all, 5);
+    assert!(queries::list_imports(&lib).unwrap()[0].folder_albums);
+
+    // Importing again adds nothing and makes no new albums.
+    let p = run(true);
+    assert_eq!((p.added, p.skipped, p.albums), (0, 5, 2));
+    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1)]);
+
+    // A plain import never touches albums.
+    write(&tree.join("2021 Taipei/d.jpg"), &photo(5, 6));
+    let p = run(false);
+    assert_eq!((p.added, p.albums), (1, 0));
+    assert_eq!(summary().len(), 2);
+}
 
 /// Inserts `n` photo rows directly (no files), spread over many days, newest id = latest photo.
 fn seed_rows(lib: &Library, n: usize) {

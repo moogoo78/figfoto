@@ -127,6 +127,10 @@ CREATE INDEX idx_photos_live_imported ON photos(trashed_at, imported_at, id);
 UPDATE photos SET home_album_id = NULL;
 UPDATE albums SET dir = NULL;
 "#,
+    // v6: imports that turned each source folder into an album.
+    r#"
+ALTER TABLE imports ADD COLUMN folder_albums INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

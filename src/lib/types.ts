@@ -94,6 +94,8 @@ export interface ImportRecord {
   skippedDupes: number;
   failed: number;
   cancelled: boolean;
+  /** Each source folder was turned into an album. */
+  folderAlbums: boolean;
   /** Photos from this import still in the library. */
   photoCount: number;
   cover: string | null;
@@ -111,6 +113,8 @@ export interface ImportProgress {
   scanning: boolean;
   finished: boolean;
   cancelled: boolean;
+  /** Albums photos were added to (organized-folder imports). */
+  albums: number;
   /** Most recent errors only (capped); the full list is in the import history. */
   errors: { path: string; error: string }[];
 }

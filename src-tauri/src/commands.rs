@@ -116,6 +116,7 @@ pub async fn start_import(
     state: State<'_, AppState>,
     src: String,
     source: Option<String>,
+    folder_albums: bool,
 ) -> Result<()> {
     let lib = state.lib()?;
     if state.importing.swap(true, Ordering::SeqCst) {
@@ -136,7 +137,7 @@ pub async fn start_import(
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        let run = || import::run(&lib, Path::new(&src), source.as_deref(), &cancel, emit);
+        let run = || import::run(&lib, Path::new(&src), source.as_deref(), folder_albums, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
             .unwrap_or_else(|_| Err(AppError::msg("the import crashed")));
         if let Err(e) = result {

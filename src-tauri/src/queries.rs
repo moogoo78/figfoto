@@ -434,6 +434,22 @@ pub fn create_album(lib: &Library, name: &str) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
+/// The album named `name` (ignoring case), created if there is none.
+pub fn find_or_create_album(lib: &Library, name: &str) -> Result<i64> {
+    let existing = lib
+        .conn()
+        .query_row(
+            "SELECT id FROM albums WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT 1",
+            [name.trim()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match existing {
+        Some(id) => Ok(id),
+        None => create_album(lib, name),
+    }
+}
+
 pub fn rename_album(lib: &Library, id: i64, name: &str) -> Result<()> {
     let name = name.trim();
     if name.is_empty() {
@@ -525,6 +541,8 @@ pub struct ImportRecord {
     pub skipped_dupes: i64,
     pub failed: i64,
     pub cancelled: bool,
+    /// Folders were turned into albums.
+    pub folder_albums: bool,
     /// Photos from this import still in the library (not trashed).
     pub photo_count: i64,
     pub cover: Option<String>,
@@ -533,14 +551,14 @@ pub struct ImportRecord {
 pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
-        "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled,
+        "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled, i.folder_albums,
             (SELECT COUNT(*) FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL),
             (SELECT p.hash FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL
                ORDER BY p.taken_at LIMIT 1)
          FROM imports i ORDER BY i.id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        let cover: Option<String> = r.get(9)?;
+        let cover: Option<String> = r.get(10)?;
         Ok(ImportRecord {
             id: r.get(0)?,
             source_dir: r.get(1)?,
@@ -550,7 +568,8 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
             skipped_dupes: r.get(5)?,
             failed: r.get(6)?,
             cancelled: r.get(7)?,
-            photo_count: r.get(8)?,
+            folder_albums: r.get(8)?,
+            photo_count: r.get(9)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
         })
     })?;

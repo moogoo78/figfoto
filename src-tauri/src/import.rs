@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::panic::AssertUnwindSafe;
@@ -15,7 +15,7 @@ use walkdir::WalkDir;
 
 use crate::error::{AppError, Result};
 use crate::library::Library;
-use crate::{exif, thumbs};
+use crate::{exif, queries, thumbs};
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "tif", "tiff", "gif", "heic", "heif", "hif"];
 
@@ -41,6 +41,8 @@ pub struct ImportProgress {
     pub scanning: bool,
     pub finished: bool,
     pub cancelled: bool,
+    /// Albums photos were added to (organized-folder imports).
+    pub albums: usize,
     pub errors: Vec<ImportFailure>,
 }
 
@@ -69,12 +71,16 @@ pub fn needs_preview(path: &Path) -> bool {
 
 /// Copies every supported image under `src` into the library. Source files are only read.
 /// `source` optionally labels where the photos came from (e.g. "LINE").
+/// With `folder_albums`, every folder below `src` that holds photos becomes an album named
+/// after it (an existing album of that name is reused); photos already in the library are
+/// added to it too. Photos directly in `src` go in no album.
 /// `on_progress` is called (throttled) while running and once more when finished; it gets at
 /// most the last `MAX_SENT_ERRORS` errors, while the returned progress and the database keep all.
 pub fn run(
     lib: &Library,
     src: &Path,
     source: Option<&str>,
+    folder_albums: bool,
     cancel: &AtomicBool,
     on_progress: impl Fn(&ImportProgress) + Sync,
 ) -> Result<ImportProgress> {
@@ -90,8 +96,8 @@ pub fn run(
     let import_id = {
         let conn = lib.conn();
         conn.execute(
-            "INSERT INTO imports (source_dir, started_at) VALUES (?1, ?2)",
-            params![src.to_string_lossy(), now()],
+            "INSERT INTO imports (source_dir, started_at, folder_albums) VALUES (?1, ?2, ?3)",
+            params![src.to_string_lossy(), now(), folder_albums],
         )?;
         conn.last_insert_rowid()
     };
@@ -139,6 +145,9 @@ pub fn run(
     }
 
     let source = source.map(str::trim).filter(|s| !s.is_empty());
+    let album_of = if folder_albums { folder_album_ids(lib, src, &files)? } else { HashMap::new() };
+    // Photos (by hash) that end up in each album, added once the copying is done.
+    let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
     // Set when a problem makes every remaining file fail too (disk full, source gone).
     let stop = AtomicBool::new(false);
@@ -152,13 +161,16 @@ pub fn run(
         }
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
+        if let (Ok((_, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
+            album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
+        }
         let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
         let mut p = progress.lock().unwrap();
         p.done += 1;
         p.current = path.to_string_lossy().into_owned();
         match result {
-            Ok(Outcome::Added) => p.added += 1,
-            Ok(Outcome::Duplicate) => p.skipped += 1,
+            Ok((Outcome::Added, _)) => p.added += 1,
+            Ok((Outcome::Duplicate, _)) => p.skipped += 1,
             Err(e) => {
                 p.failed += 1;
                 let path = p.current.clone();
@@ -176,6 +188,14 @@ pub fn run(
     });
 
     let mut p = progress.into_inner().unwrap();
+    for (album, hashes) in album_hashes.into_inner().unwrap() {
+        if let Err(e) = add_by_hash(lib, album, &hashes) {
+            p.failed += 1;
+            p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
+        } else {
+            p.albums += 1;
+        }
+    }
     p.finished = true;
     p.cancelled = cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed);
     {
@@ -229,14 +249,54 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
         .unwrap_or("unknown panic")
 }
 
-fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, claimed: &Mutex<HashSet<String>>) -> Result<Outcome> {
+/// The album for each folder below `src` that directly holds one of `files`, keyed by folder.
+fn folder_album_ids(lib: &Library, src: &Path, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
+    let mut out = HashMap::new();
+    for dir in files.iter().filter_map(|f| f.parent()) {
+        if dir == src || out.contains_key(dir) {
+            continue;
+        }
+        let Some(name) = dir.file_name() else { continue };
+        out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy())?);
+    }
+    Ok(out)
+}
+
+/// Adds the photos with these hashes to `album`, in date order.
+fn add_by_hash(lib: &Library, album: i64, hashes: &[String]) -> Result<()> {
+    let mut photos: Vec<(String, i64)> = Vec::with_capacity(hashes.len());
+    {
+        let conn = lib.conn();
+        // Chunked to stay under SQLite's limit on query parameters.
+        for chunk in hashes.chunks(5000) {
+            let marks = vec!["?"; chunk.len()].join(",");
+            let mut stmt = conn.prepare(&format!("SELECT taken_at, id FROM photos WHERE hash IN ({marks})"))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| Ok((r.get(0)?, r.get(1)?)))?;
+            for row in rows {
+                photos.push(row?);
+            }
+        }
+    }
+    photos.sort();
+    photos.dedup();
+    let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
+    queries::add_to_album(lib, album, &ids)
+}
+
+fn import_one(
+    lib: &Library,
+    import_id: i64,
+    source: Option<&str>,
+    src: &Path,
+    claimed: &Mutex<HashSet<String>>,
+) -> Result<(Outcome, String)> {
     let hash = hash_file(src)?;
 
     // Claim the hash so identical files within one import aren't copied twice.
     {
         let mut claimed = claimed.lock().unwrap_or_else(|e| e.into_inner());
         if claimed.contains(&hash) {
-            return Ok(Outcome::Duplicate);
+            return Ok((Outcome::Duplicate, hash));
         }
         let exists = lib
             .conn()
@@ -244,7 +304,7 @@ fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, c
             .optional()?
             .is_some();
         if exists {
-            return Ok(Outcome::Duplicate);
+            return Ok((Outcome::Duplicate, hash));
         }
         claimed.insert(hash.clone());
     }
@@ -253,7 +313,7 @@ fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, c
     if result.is_err() {
         claimed.lock().unwrap_or_else(|e| e.into_inner()).remove(&hash);
     }
-    result.map(|_| Outcome::Added)
+    result.map(|_| (Outcome::Added, hash))
 }
 
 fn copy_and_index(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, hash: &str) -> Result<()> {

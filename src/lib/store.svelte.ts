@@ -34,7 +34,7 @@ class Store {
 
   importOpen = $state(false);
   /** Source folder to prefill when the import dialog opens. */
-  importPreset = $state("");
+  importPreset = $state<{ dir: string; folderAlbums: boolean } | null>(null);
   progress = $state.raw<ImportProgress | null>(null);
   toasts = $state<Toast[]>([]);
   /** Mark whose batch is running, with copy progress. */
@@ -97,8 +97,8 @@ class Store {
     }
   }
 
-  openImport(source = "") {
-    this.importPreset = source;
+  openImport(dir = "", folderAlbums = false) {
+    this.importPreset = dir ? { dir, folderAlbums } : null;
     this.importOpen = true;
   }
 

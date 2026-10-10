@@ -9,13 +9,16 @@
   let source = $state("");
   /** Optional label for where these photos came from (e.g. LINE). */
   let origin = $state("");
+  /** Organized folders: each folder holding photos becomes an album. */
+  let folderAlbums = $state(false);
   let started = $state(false);
 
   // "Import again" from the history view prefills the folder.
   $effect(() => {
     if (store.importOpen && store.importPreset && !started) {
-      source = store.importPreset;
-      store.importPreset = "";
+      source = store.importPreset.dir;
+      folderAlbums = store.importPreset.folderAlbums;
+      store.importPreset = null;
     }
   });
 
@@ -31,7 +34,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin);
+      await api.startImport(source, origin, folderAlbums);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -53,6 +56,23 @@
       <h2>{t("Import photos")}</h2>
 
       {#if !started}
+        <div class="kind" role="radiogroup" aria-label={t("Import type")}>
+          <label class:on={!folderAlbums}>
+            <input type="radio" name="kind" value={false} bind:group={folderAlbums} />
+            <strong>{t("Camera / SD card")}</strong>
+            <small>{t("Sorted by date only")}</small>
+          </label>
+          <label class:on={folderAlbums}>
+            <input type="radio" name="kind" value={true} bind:group={folderAlbums} />
+            <strong>{t("Organized folders")}</strong>
+            <small>{t("Each folder becomes an album")}</small>
+          </label>
+        </div>
+        {#if folderAlbums}
+          <p class="hint">
+            {t("Each folder that holds photos becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy. Photos directly in the chosen folder aren't put in an album.")}
+          </p>
+        {/if}
         <p class="hint">
           {t("Photos are copied into your library under")} <code>originals/YYYY/MM/DD</code>{t(". The source folder is not changed. Files already in the library are skipped.")}
         </p>
@@ -78,6 +98,7 @@
           {/if}
           <span class="ok">{t("{n} added", { n: p?.added ?? 0 })}</span>
           <span>{t("{n} already in library", { n: p?.skipped ?? 0 })}</span>
+          {#if p?.albums}<span>{t("{n} album(s)", { n: p.albums })}</span>{/if}
           {#if p?.failed}<span class="bad">{t("{n} failed", { n: p.failed })}</span>{/if}
         </div>
         {#if running}
@@ -113,6 +134,13 @@
   .dialog { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px 22px;
     background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 60px rgb(0 0 0 / 0.5); }
   h2 { margin: 0 0 12px; font-size: 18px; }
+  .kind { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+  .kind label { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .kind label.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .kind input { position: absolute; opacity: 0; pointer-events: none; }
+  .kind label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .kind small { color: var(--muted); }
   .hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
   .pick { display: flex; gap: 8px; }
   .pick input { flex: 1; cursor: pointer; }
