@@ -596,6 +596,32 @@ fn deleted_photos_are_not_imported_again() {
 }
 
 #[test]
+fn reimport_skips_known_files_without_reading_them() {
+    use std::os::unix::fs::PermissionsExt;
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    queries::trash_photos(&lib, &ids[..1]).unwrap();
+    empty_trash(&lib).unwrap();
+    // Unreadable now, but unchanged in path, size and time: still recognised.
+    for i in 0..3 {
+        std::fs::set_permissions(src.join(format!("p{i}.jpg")), std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    let p = import_all(&lib, &src);
+    assert_eq!((p.added, p.skipped, p.skipped_deleted, p.failed), (0, 2, 1, 0));
+
+    // A changed file is read again.
+    std::fs::set_permissions(src.join("p1.jpg"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    write(&src.join("p1.jpg"), &jpeg_bytes(&picture(2, 80, 80), 90));
+    let p = import_all(&lib, &src);
+    assert_eq!((p.added, p.skipped, p.skipped_deleted, p.failed), (1, 1, 1, 0));
+
+    // Bringing deleted photos back has to read them (the file is unreadable here, so it fails).
+    let opts = ImportOptions { include_deleted: true, ..Default::default() };
+    let p = import::run(&lib, &src, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!((p.skipped, p.failed), (2, 1));
+}
+
+#[test]
 fn skips_hidden_nas_and_trash_entries() {
     let Env { _tmp, src, lib } = env();
     write(&src.join("keep.jpg"), &jpeg_bytes(&picture(0, 64, 64), 90));

@@ -171,7 +171,7 @@ pub fn run(
         if cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed) {
             return;
         }
-        let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, path, &claimed)))
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, src, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
         if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
             album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
@@ -263,6 +263,43 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
         .unwrap_or("unknown panic")
 }
 
+/// Identifies a source file by its path inside the imported folder, size and modified time.
+/// The path is relative so the same card matches wherever it is mounted.
+struct SeenKey {
+    rel_path: String,
+    size: i64,
+    mtime_ns: i64,
+}
+
+impl SeenKey {
+    fn of(root: &Path, file: &Path) -> Option<SeenKey> {
+        let meta = std::fs::metadata(file).ok()?;
+        let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+        let rel_path = file.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
+        Some(SeenKey { rel_path, size: meta.len() as i64, mtime_ns: i64::try_from(mtime.as_nanos()).ok()? })
+    }
+
+    /// The content hash recorded when this file was last imported.
+    fn lookup(&self, lib: &Library) -> Result<Option<String>> {
+        Ok(lib
+            .conn()
+            .query_row(
+                "SELECT hash FROM import_seen WHERE rel_path = ?1 AND size = ?2 AND mtime_ns = ?3",
+                params![self.rel_path, self.size, self.mtime_ns],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    fn remember(&self, lib: &Library, hash: &str) -> Result<()> {
+        lib.conn().execute(
+            "INSERT OR REPLACE INTO import_seen (rel_path, size, mtime_ns, hash) VALUES (?1, ?2, ?3, ?4)",
+            params![self.rel_path, self.size, self.mtime_ns, hash],
+        )?;
+        Ok(())
+    }
+}
+
 /// Whether a photo with this content was deleted from the library before.
 fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     let found = lib.conn().query_row("SELECT 1 FROM deleted_hashes WHERE hash = ?1", [hash], |_| Ok(())).optional()?;
@@ -308,10 +345,25 @@ fn import_one(
     import_id: i64,
     source: Option<&str>,
     include_deleted: bool,
+    root: &Path,
     src: &Path,
     claimed: &Mutex<HashSet<String>>,
 ) -> Result<(Outcome, String)> {
+    let seen = SeenKey::of(root, src);
+    // Seen in an earlier import and unchanged since: decide without reading the file.
+    if let Some(hash) = seen.as_ref().map(|k| k.lookup(lib)).transpose()?.flatten() {
+        if lib.conn().query_row("SELECT 1 FROM photos WHERE hash = ?1", [&hash], |_| Ok(())).optional()?.is_some() {
+            return Ok((Outcome::Duplicate, hash));
+        }
+        if !include_deleted && was_deleted(lib, &hash)? {
+            return Ok((Outcome::Deleted, hash));
+        }
+    }
+
     let hash = hash_file(src)?;
+    if let Some(k) = &seen {
+        k.remember(lib, &hash)?;
+    }
 
     // Claim the hash so identical files within one import aren't copied twice.
     {

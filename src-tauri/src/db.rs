@@ -141,6 +141,17 @@ CREATE TABLE deleted_hashes (
 );
 ALTER TABLE imports ADD COLUMN skipped_deleted INTEGER NOT NULL DEFAULT 0;
 "#,
+    // v8: files seen by earlier imports, keyed by their path inside the chosen folder plus
+    // size and modified time, so importing the same card again needn't read them to hash.
+    r#"
+CREATE TABLE import_seen (
+    rel_path TEXT NOT NULL,
+    size     INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    hash     TEXT NOT NULL,
+    PRIMARY KEY (rel_path, size, mtime_ns)
+) WITHOUT ROWID;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
