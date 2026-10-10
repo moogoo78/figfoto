@@ -87,6 +87,17 @@ pub fn set_mark(lib: &Library, ids: &[i64], mark: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Marks the photos with `mark`, or clears it if they all carry it already.
+pub fn toggle_mark(lib: &Library, ids: &[i64], mark: &str) -> Result<()> {
+    check_mark(mark)?;
+    let other: i64 = lib.conn().query_row(
+        &format!("SELECT COUNT(*) FROM photos WHERE mark IS NOT ?1 AND id IN ({})", id_list(ids)),
+        [mark],
+        |r| r.get(0),
+    )?;
+    set_mark(lib, ids, (other > 0).then_some(mark))
+}
+
 pub fn list_slots(lib: &Library) -> Result<Vec<MarkSlot>> {
     let conn = lib.conn();
     let mut slots: Vec<MarkSlot> = MARKS

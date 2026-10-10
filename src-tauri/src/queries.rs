@@ -220,6 +220,31 @@ pub fn list_photos(lib: &Library, f: &Filter, sort: Sort, offset: i64, limit: i6
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Like `list_photos`, but only the ids (e.g. for select-all on a large library).
+pub fn list_ids(lib: &Library, f: &Filter, sort: Sort, offset: i64, limit: i64) -> Result<Vec<i64>> {
+    let (wh, mut args) = where_clause(f);
+    args.push(Box::new(limit));
+    args.push(Box::new(offset));
+    let sql = format!("SELECT p.id FROM photos p WHERE {wh} ORDER BY {} LIMIT ? OFFSET ?", sort.order_by());
+    let conn = lib.conn();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(args.iter()), |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// First and last day (`YYYY-MM-DD`) the given photos were taken, or `None` for no photos.
+pub fn date_span(lib: &Library, ids: &[i64]) -> Result<Option<(String, String)>> {
+    let span = lib.conn().query_row(
+        &format!(
+            "SELECT MIN(substr(taken_at, 1, 10)), MAX(substr(taken_at, 1, 10)) FROM photos WHERE id IN ({})",
+            id_list(ids)
+        ),
+        [],
+        |r| Ok(r.get::<_, Option<String>>(0)?.zip(r.get::<_, Option<String>>(1)?)),
+    )?;
+    Ok(span)
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Bucket {
     /// `YYYY-MM-DD`, or empty when the sort doesn't group by day.
@@ -319,6 +344,18 @@ pub fn set_favorite(lib: &Library, ids: &[i64], favorite: bool) -> Result<()> {
     lib.conn()
         .execute(&format!("UPDATE photos SET favorite = ?1 WHERE id IN ({})", id_list(ids)), [favorite])?;
     Ok(())
+}
+
+/// Favorites the photos, or unfavorites them if they all are already. Returns the new state.
+pub fn toggle_favorite(lib: &Library, ids: &[i64]) -> Result<bool> {
+    let not_fav: i64 = lib.conn().query_row(
+        &format!("SELECT COUNT(*) FROM photos WHERE favorite = 0 AND id IN ({})", id_list(ids)),
+        [],
+        |r| r.get(0),
+    )?;
+    let favorite = not_fav > 0;
+    set_favorite(lib, ids, favorite)?;
+    Ok(favorite)
 }
 
 // ---- tags ----

@@ -115,6 +115,11 @@ CREATE TABLE mark_actions (
     target TEXT NOT NULL DEFAULT ''
 );
 "#,
+    // v4: indexes matching the photo grid's filter + sort, so large libraries page quickly.
+    r#"
+CREATE INDEX idx_photos_live_taken ON photos(trashed_at, taken_at, id);
+CREATE INDEX idx_photos_live_imported ON photos(trashed_at, imported_at, id);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

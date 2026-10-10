@@ -2,6 +2,8 @@ import { api } from "./api";
 import type { Bucket, Filter, Photo, Sort } from "./types";
 
 const PAGE = 200;
+/** Pages kept in memory; the ones farthest from the visible range are dropped first. */
+const MAX_PAGES = 12;
 
 /**
  * A lazily paged view of the photos matching a filter. Day buckets give the full
@@ -13,11 +15,19 @@ export class PhotoList {
   /** False until the first reload finishes. */
   loaded = $state(false);
   pages = $state.raw<Record<number, Photo[]>>({});
+  /** Loaded photos by id. */
+  byId = $derived.by(() => {
+    const map = new Map<number, Photo>();
+    for (const page of Object.values(this.pages)) for (const p of page) map.set(p.id, p);
+    return map;
+  });
 
   #filter: Filter = { tagIds: [], trashed: false };
   #sort: Sort = "takenDesc";
   #gen = 0;
   #loading = new Map<number, Promise<void>>();
+  /** Page range last requested by the grid. */
+  #visible: [number, number] = [0, 0];
 
   /** Switches to a new filter/sort, dropping all cached pages. */
   async reload(filter: Filter, sort: Sort) {
@@ -52,9 +62,16 @@ export class PhotoList {
     return this.pages[Math.floor(i / PAGE)]?.[i % PAGE];
   }
 
+  /** A loaded photo by id (photos far from the visible range may not be loaded). */
+  find(id: number): Photo | undefined {
+    return this.byId.get(id);
+  }
+
   /** Makes sure indexes `from..=to` are loaded (or loading). */
   ensure(from: number, to: number) {
-    for (let p = Math.floor(Math.max(0, from) / PAGE); p <= Math.floor(to / PAGE); p++) this.#load(p);
+    const [a, b] = [Math.floor(Math.max(0, from) / PAGE), Math.floor(Math.max(0, to) / PAGE)];
+    this.#visible = [a, b];
+    for (let p = a; p <= b; p++) this.#load(p);
   }
 
   async fetch(i: number): Promise<Photo | undefined> {
@@ -64,15 +81,13 @@ export class PhotoList {
   }
 
   /** All ids matching the current filter (for select-all). */
-  async allIds(): Promise<number[]> {
-    const photos = await api.listPhotos(this.#filter, this.#sort, 0, this.total);
-    return photos.map((p) => p.id);
+  allIds(): Promise<number[]> {
+    return api.listPhotoIds(this.#filter, this.#sort, 0, this.total);
   }
 
   /** Ids at indexes `start..start+count` (e.g. one day's photos). */
-  async idsInRange(start: number, count: number): Promise<number[]> {
-    const photos = await api.listPhotos(this.#filter, this.#sort, start, count);
-    return photos.map((p) => p.id);
+  idsInRange(start: number, count: number): Promise<number[]> {
+    return api.listPhotoIds(this.#filter, this.#sort, start, count);
   }
 
   #setBuckets(buckets: Bucket[]) {
@@ -88,7 +103,8 @@ export class PhotoList {
     const promise = api.listPhotos(this.#filter, this.#sort, page * PAGE, PAGE).then(
       (photos) => {
         if (gen !== this.#gen) return;
-        this.pages = { ...this.pages, [page]: photos };
+        this.#loading.delete(page);
+        this.pages = this.#evict({ ...this.pages, [page]: photos }, page);
       },
       () => {
         this.#loading.delete(page);
@@ -96,5 +112,17 @@ export class PhotoList {
     );
     this.#loading.set(page, promise);
     return promise;
+  }
+
+  /** Drops the pages farthest from the visible range (never it, nor `keep`) beyond `MAX_PAGES`. */
+  #evict(pages: Record<number, Photo[]>, keep: number): Record<number, Photo[]> {
+    const loaded = Object.keys(pages).map(Number);
+    if (loaded.length <= MAX_PAGES) return pages;
+    const [a, b] = this.#visible;
+    const distance = (p: number) => (p === keep || (p >= a && p <= b) ? -1 : p < a ? a - p : p - b);
+    const drop = loaded.sort((x, y) => distance(y) - distance(x)).slice(0, loaded.length - MAX_PAGES);
+    const next = { ...pages };
+    for (const p of drop) if (distance(p) >= 0) delete next[p];
+    return next;
   }
 }

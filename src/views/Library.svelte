@@ -74,10 +74,8 @@
     if (e.shiftKey && anchor != null) {
       if (!(e.ctrlKey || e.metaKey)) store.selection.clear();
       const [a, b] = anchor < i ? [anchor, i] : [i, anchor];
-      for (let k = a; k <= b; k++) {
-        const q = list.get(k);
-        if (q) store.selection.add(q.id);
-      }
+      // The range may span pages that aren't loaded, so ask for its ids.
+      list.idsInRange(a, b - a + 1).then((ids) => ids.forEach((id) => store.selection.add(id)));
       return;
     }
     if (e.ctrlKey || e.metaKey) {
@@ -100,15 +98,11 @@
     store.mutate(() => api.emptyTrash(), t("Moved to the system Trash"));
   }
 
-  function toggleMark(ids: number[], mark: Mark) {
-    store.toggleMark(ids, mark, (id) => findLoaded(id)?.mark);
-  }
-
   /** Suggests an album name from the selected photos' dates. */
-  function suggestAlbumName(): string {
-    const days = selected.map((id) => findLoaded(id)?.takenAt.slice(0, 10)).filter(Boolean).sort() as string[];
-    if (!days.length) return "";
-    const [first, last] = [days[0], days[days.length - 1]];
+  async function suggestAlbumName(): Promise<string> {
+    const span = await api.dateSpan(selected).catch(() => null);
+    if (!span) return "";
+    const [first, last] = span;
     return first === last ? first : `${first} – ${last}`;
   }
 
@@ -148,21 +142,12 @@
     else if (e.key === "Enter" && anchor != null) viewerIndex = anchor;
     else if (!ids.length) return;
     else if (e.shiftKey && /^Digit[0-5]$/.test(e.code)) store.mutate(() => api.setRating(ids, Number(e.code.slice(5))));
-    else if (e.key === "x" || /^[1-4]$/.test(e.key)) toggleMark(ids, e.key as Mark);
-    else if (e.key === "f") {
-      const allFav = ids.every((id) => findLoaded(id)?.favorite);
-      store.mutate(() => api.setFavorite(ids, !allFav));
-    } else if (e.key === "t") tagInput?.focus();
+    else if (e.key === "x" || /^[1-4]$/.test(e.key)) store.toggleMark(ids, e.key as Mark);
+    else if (e.key === "f") store.mutate(() => api.toggleFavorite(ids));
+    else if (e.key === "t") tagInput?.focus();
     else if (e.key === "Delete") trashOrRestore(ids);
     else return;
     e.preventDefault();
-  }
-
-  function findLoaded(id: number) {
-    for (const page of Object.values(list.pages)) {
-      const p = page.find((q) => q.id === id);
-      if (p) return p;
-    }
   }
 
   const focusSelect = (el: HTMLInputElement) => {
@@ -170,7 +155,7 @@
     el.select();
   };
 
-  const singleRating = $derived(selected.length === 1 ? (findLoaded(selected[0])?.rating ?? 0) : 0);
+  const singleRating = $derived(selected.length === 1 ? (list.find(selected[0])?.rating ?? 0) : 0);
 </script>
 
 <svelte:window {onkeydown} />
@@ -220,7 +205,7 @@
       {#if !inTrash}
         <span class="marks" role="group" aria-label={t("Mark")}>
           {#each MARKS as m}
-            <button class="mark mark-{m}" title="{store.markName(m)} ({m})" onclick={() => toggleMark(selected, m)}>{m}</button>
+            <button class="mark mark-{m}" title="{store.markName(m)} ({m})" onclick={() => store.toggleMark(selected, m)}>{m}</button>
           {/each}
           <button class="unmark" title={t("Clear mark")} onclick={() => store.mutate(() => api.setMark(selected, null))}>∅</button>
         </span>
@@ -242,7 +227,7 @@
               e.stopPropagation();
             }} />
         {:else}
-          <button onclick={() => (newAlbumName = suggestAlbumName())}>＋ {t("New album")}</button>
+          <button onclick={async () => (newAlbumName = await suggestAlbumName())}>＋ {t("New album")}</button>
         {/if}
         {#if store.albums.length}
           <select

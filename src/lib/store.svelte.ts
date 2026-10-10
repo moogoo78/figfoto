@@ -161,13 +161,9 @@ class Store {
     return this.markSlot(mark)?.label || (mark === "x" ? t("Delete") : t("Mark {n}", { n: mark }));
   }
 
-  /**
-   * Marks photos with `mark`, or clears it if they all carry it already.
-   * `current` gives the known marks of the photos.
-   */
-  toggleMark(ids: number[], mark: Mark, current: (id: number) => Mark | null | undefined) {
-    const clear = ids.every((id) => current(id) === mark);
-    return this.mutate(() => api.setMark(ids, clear ? null : mark));
+  /** Marks photos with `mark`, or clears it if they all carry it already. */
+  toggleMark(ids: number[], mark: Mark) {
+    return this.mutate(() => api.toggleMark(ids, mark));
   }
 
   /** Runs the batch action of `mark` on every photo carrying it. */

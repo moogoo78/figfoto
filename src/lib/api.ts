@@ -19,12 +19,18 @@ export const api = {
 
   listPhotos: (filter: Filter, sort: Sort, offset: number, limit: number) =>
     invoke<Photo[]>("list_photos", { filter, sort, offset, limit }),
+  listPhotoIds: (filter: Filter, sort: Sort, offset: number, limit: number) =>
+    invoke<number[]>("list_photo_ids", { filter, sort, offset, limit }),
+  /** First and last day (`YYYY-MM-DD`) of the given photos. */
+  dateSpan: (ids: number[]) => invoke<[string, string] | null>("photo_date_span", { ids }),
   dateBuckets: (filter: Filter, sort: Sort) => invoke<Bucket[]>("photo_date_buckets", { filter, sort }),
   getPhoto: (id: number) => invoke<PhotoDetail>("get_photo", { id }),
   counts: () => invoke<Counts>("counts"),
 
   setRating: (ids: number[], rating: number) => invoke<void>("set_rating", { ids, rating }),
   setFavorite: (ids: number[], favorite: boolean) => invoke<void>("set_favorite", { ids, favorite }),
+  /** Favorites the photos, or unfavorites them if all already are. */
+  toggleFavorite: (ids: number[]) => invoke<boolean>("toggle_favorite", { ids }),
 
   listTags: () => invoke<Tag[]>("list_tags"),
   addTags: (ids: number[], names: string[]) => invoke<void>("add_tags", { ids, names }),
@@ -45,6 +51,8 @@ export const api = {
   emptyTrash: () => invoke<number>("empty_trash"),
 
   setMark: (ids: number[], mark: Mark | null) => invoke<void>("set_mark", { ids, mark }),
+  /** Marks the photos, or clears the mark if they all carry it already. */
+  toggleMark: (ids: number[], mark: Mark) => invoke<void>("toggle_mark", { ids, mark }),
   listMarks: () => invoke<MarkSlot[]>("list_marks"),
   setMarkAction: (slot: number, label: string, kind: MarkActionKind | null, target: string) =>
     invoke<void>("set_mark_action", { slot, label, kind, target }),

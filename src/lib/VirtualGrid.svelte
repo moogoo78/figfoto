@@ -4,6 +4,7 @@
   import { fmtDay, originLabel } from "./format";
   import type { PhotoList } from "./photoList.svelte";
   import { store } from "./store.svelte";
+  import TimelineScrubber from "./TimelineScrubber.svelte";
 
   let {
     list,
@@ -31,8 +32,10 @@
   let height = $state(0);
   let scrollTop = $state(0);
 
-  const cols = $derived(Math.max(1, Math.floor((width - PAD * 2 + GAP) / (store.thumbSize + GAP))));
-  const cell = $derived(Math.max(40, (width - PAD * 2 - GAP * (cols - 1)) / cols));
+  /** Right margin; wider for multi-day lists, leaving room for the timeline scrubber. */
+  const padRight = $derived(list.buckets.length > 1 ? 44 : PAD);
+  const cols = $derived(Math.max(1, Math.floor((width - PAD - padRight + GAP) / (store.thumbSize + GAP))));
+  const cell = $derived(Math.max(40, (width - PAD - padRight - GAP * (cols - 1)) / cols));
 
   type Row =
     | { kind: "header"; top: number; day: string; count: number; start: number }
@@ -78,6 +81,12 @@
     ),
   );
 
+  const days = $derived(
+    layout.rows.flatMap((r) => (r.kind === "header" ? [{ day: r.day, top: r.top }] : [])),
+  );
+  /** Day-grouped and long enough that scrolling alone gets tedious. */
+  const showScrubber = $derived(days.length > 1 && layout.height > height * 3);
+
   /** Day label of the section at the top of the viewport. */
   const currentDay = $derived.by(() => {
     let day = "";
@@ -113,7 +122,7 @@
 </script>
 
 <div class="wrap">
-<div class="grid" bind:this={el} bind:clientWidth={width} bind:clientHeight={height} onscroll={() => (scrollTop = el.scrollTop)}>
+<div class="grid" id="photo-grid" class:scrubbed={showScrubber} bind:this={el} bind:clientWidth={width} bind:clientHeight={height} onscroll={() => (scrollTop = el.scrollTop)}>
   <div class="spacer" style:height="{layout.height}px">
     {#each visible as row (row.top)}
       {#if row.kind === "header"}
@@ -158,11 +167,18 @@
   </div>
 </div>
 {#if currentDay}<div class="pill">{fmtDay(currentDay)}</div>{/if}
+{#if showScrubber}
+  <TimelineScrubber {days} contentHeight={layout.height} viewHeight={height} {scrollTop}
+    onscroll={(top) => (el.scrollTop = top)} />
+{/if}
 </div>
 
 <style>
   .wrap { position: relative; height: 100%; }
   .grid { position: relative; overflow-y: auto; height: 100%; }
+  /* The timeline scrubber replaces the scrollbar. */
+  .grid.scrubbed { scrollbar-width: none; }
+  .grid.scrubbed::-webkit-scrollbar { display: none; }
   .spacer { position: relative; }
   .day {
     position: absolute; left: 16px; right: 16px; height: 44px; margin: 0;

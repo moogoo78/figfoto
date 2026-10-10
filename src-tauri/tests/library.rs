@@ -660,3 +660,97 @@ fn progress_reports_scanning_and_caps_errors() {
     assert_eq!(p.errors.len(), n);
     assert_eq!(queries::import_errors(&lib, p.import_id).unwrap().len(), n);
 }
+
+// ---- large libraries ----
+
+/// Inserts `n` photo rows directly (no files), spread over many days, newest id = latest photo.
+fn seed_rows(lib: &Library, n: usize) {
+    let conn = lib.conn();
+    conn.execute_batch("BEGIN").unwrap();
+    {
+        let mut stmt = conn
+            .prepare(
+                "INSERT INTO photos (hash, rel_path, orig_name, taken_at, imported_at, file_size)
+                 VALUES (?1, ?2, ?3, ?4, '2026-01-01T00:00:00', 1)",
+            )
+            .unwrap();
+        let start = NaiveDate::from_ymd_opt(2015, 1, 1).unwrap().and_hms_opt(8, 0, 0).unwrap();
+        for i in 0..n {
+            // ~7 photos per day, 7 minutes apart.
+            let taken = start + chrono::Duration::minutes(i as i64 * 7 + (i as i64 / 7) * 1391);
+            let name = format!("IMG_{i:06}.jpg");
+            stmt.execute(rusqlite::params![
+                format!("hash{i}"),
+                format!("originals/{}/{name}", taken.format("%Y/%m/%d")),
+                name,
+                taken.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            ])
+            .unwrap();
+        }
+    }
+    conn.execute_batch("COMMIT").unwrap();
+}
+
+#[test]
+fn ids_date_span_and_toggles() {
+    let Env { _tmp, lib, .. } = env();
+    seed_rows(&lib, 20);
+    let all = Filter::default();
+
+    // Ids come back in the same order (and window) as full photo rows.
+    for (offset, limit) in [(0, 100), (5, 7)] {
+        let photos = queries::list_photos(&lib, &all, Sort::TakenDesc, offset, limit).unwrap();
+        let ids = queries::list_ids(&lib, &all, Sort::TakenDesc, offset, limit).unwrap();
+        assert_eq!(ids, photos.iter().map(|p| p.id).collect::<Vec<_>>());
+    }
+
+    let photos = queries::list_photos(&lib, &all, Sort::TakenAsc, 0, 100).unwrap();
+    let ids: Vec<i64> = photos.iter().map(|p| p.id).collect();
+    let (first, last) = (&photos[0].taken_at[..10], &photos[19].taken_at[..10]);
+    assert_eq!(queries::date_span(&lib, &ids).unwrap(), Some((first.to_string(), last.to_string())));
+    assert_eq!(queries::date_span(&lib, &[]).unwrap(), None);
+
+    // Mixed selection -> all favorite; all favorite -> none.
+    queries::set_favorite(&lib, &ids[..3], true).unwrap();
+    assert!(queries::toggle_favorite(&lib, &ids[..6]).unwrap());
+    assert_eq!(queries::counts(&lib).unwrap().favorites, 6);
+    assert!(!queries::toggle_favorite(&lib, &ids[..6]).unwrap());
+    assert_eq!(queries::counts(&lib).unwrap().favorites, 0);
+
+    // Marks: mixed (including another mark) -> set; all carrying it -> cleared.
+    let mark_of = |id: i64| queries::get_photo(&lib, id).unwrap().photo.mark;
+    frutyfoto_lib::marks::set_mark(&lib, &ids[..2], Some("1")).unwrap();
+    frutyfoto_lib::marks::set_mark(&lib, &ids[2..3], Some("x")).unwrap();
+    frutyfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
+    assert!(ids[..4].iter().all(|&id| mark_of(id).as_deref() == Some("1")));
+    frutyfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
+    assert!(ids[..4].iter().all(|&id| mark_of(id).is_none()));
+    assert!(frutyfoto_lib::marks::toggle_mark(&lib, &ids[..1], "z").is_err());
+}
+
+/// Timing check for a big library: `cargo test --release -- --ignored --nocapture large_library`.
+#[test]
+#[ignore]
+fn large_library_queries_stay_fast() {
+    const N: usize = 100_000;
+    let Env { _tmp, lib, .. } = env();
+    seed_rows(&lib, N);
+    let all = Filter::default();
+    let time = |label: &str, f: &dyn Fn() -> usize| {
+        let t = std::time::Instant::now();
+        let n = f();
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!("{label:<32} {ms:>8.1} ms  ({n} rows)");
+        ms
+    };
+    let mut worst: f64 = 0.0;
+    worst = worst.max(time("date_buckets", &|| queries::date_buckets(&lib, &all, Sort::TakenDesc).unwrap().len()));
+    for offset in [0, N as i64 / 2, N as i64 - 200] {
+        worst = worst.max(time(&format!("list_photos @ {offset}"), &|| {
+            queries::list_photos(&lib, &all, Sort::TakenDesc, offset, 200).unwrap().len()
+        }));
+    }
+    worst = worst.max(time("list_ids (all)", &|| queries::list_ids(&lib, &all, Sort::TakenDesc, 0, N as i64).unwrap().len()));
+    worst = worst.max(time("counts", &|| queries::counts(&lib).unwrap().all as usize));
+    assert!(worst < 100.0, "slowest query took {worst:.1} ms");
+}

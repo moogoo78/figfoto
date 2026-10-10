@@ -179,6 +179,22 @@ pub async fn list_photos(
 }
 
 #[tauri::command]
+pub async fn list_photo_ids(
+    state: State<'_, AppState>,
+    filter: Filter,
+    sort: Sort,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<i64>> {
+    queries::list_ids(&*state.lib()?, &filter, sort, offset, limit)
+}
+
+#[tauri::command]
+pub async fn photo_date_span(state: State<'_, AppState>, ids: Vec<i64>) -> Result<Option<(String, String)>> {
+    queries::date_span(&*state.lib()?, &ids)
+}
+
+#[tauri::command]
 pub async fn photo_date_buckets(state: State<'_, AppState>, filter: Filter, sort: Sort) -> Result<Vec<Bucket>> {
     queries::date_buckets(&*state.lib()?, &filter, sort)
 }
@@ -201,6 +217,11 @@ pub async fn set_rating(state: State<'_, AppState>, ids: Vec<i64>, rating: i64) 
 #[tauri::command]
 pub async fn set_favorite(state: State<'_, AppState>, ids: Vec<i64>, favorite: bool) -> Result<()> {
     queries::set_favorite(&*state.lib()?, &ids, favorite)
+}
+
+#[tauri::command]
+pub async fn toggle_favorite(state: State<'_, AppState>, ids: Vec<i64>) -> Result<bool> {
+    queries::toggle_favorite(&*state.lib()?, &ids)
 }
 
 #[tauri::command]
@@ -281,6 +302,11 @@ pub async fn empty_trash(state: State<'_, AppState>) -> Result<usize> {
 #[tauri::command]
 pub async fn set_mark(state: State<'_, AppState>, ids: Vec<i64>, mark: Option<String>) -> Result<()> {
     marks::set_mark(&*state.lib()?, &ids, mark.as_deref())
+}
+
+#[tauri::command]
+pub async fn toggle_mark(state: State<'_, AppState>, ids: Vec<i64>, mark: String) -> Result<()> {
+    marks::toggle_mark(&*state.lib()?, &ids, &mark)
 }
 
 #[tauri::command]

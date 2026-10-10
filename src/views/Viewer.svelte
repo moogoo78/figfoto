@@ -54,7 +54,7 @@
     else if (e.key === "Escape") onclose();
     else if (e.key === "i") showInfo = !showInfo;
     else if (e.shiftKey && /^Digit[0-5]$/.test(e.code)) store.mutate(() => api.setRating(ids, Number(e.code.slice(5))));
-    else if (e.key === "x" || /^[1-4]$/.test(e.key)) store.toggleMark(ids, e.key as Mark, () => photo?.mark);
+    else if (e.key === "x" || /^[1-4]$/.test(e.key)) store.toggleMark(ids, e.key as Mark);
     else if (e.key === "f") store.mutate(() => api.setFavorite(ids, !photo!.favorite));
     else if (e.key === "t") tagInput?.focus();
     else if (e.key === "Delete") trash();
