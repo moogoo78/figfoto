@@ -4,17 +4,45 @@
 
    - import (folder)
 
-      - hard drive
+      - from
 
-      - SD card
+         - hard drive
 
-      - phone (USB / synced folder)
+         - SD card
 
-      - \*cloud drive (via rclone or sync client, then import the folder)
+         - phone (USB / synced folder)
 
-         - google drive
+         - \*cloud drive (via rclone or sync client, then import the folder)
 
-         - proton drive
+            - google drive
+
+            - proton drive
+
+      - import type
+
+         - camera / SD card (date only)
+
+         - organized folders
+
+            - each folder holding photos → album named after it
+
+            - reuse album with the same name
+
+            - photo already in library → added to album, no second copy
+
+      - skip rules
+
+         - already in library (content hash)
+
+         - previously deleted (hash kept when trash is emptied)
+
+            - "include previously deleted photos" checkbox
+
+         - fast re-import: known path + size + mtime → no re-read
+
+      - import history
+
+         - import again (keeps import type)
 
    - quick add
 
