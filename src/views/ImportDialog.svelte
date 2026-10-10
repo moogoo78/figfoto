@@ -73,7 +73,7 @@
         </div>
         {#if folderAlbums}
           <p class="hint">
-            {t("Each folder that holds photos becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy. Photos directly in the chosen folder aren't put in an album.")}
+            {t("Each folder that holds photos, including the chosen folder itself, becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy.")}
           </p>
         {/if}
         <p class="hint">

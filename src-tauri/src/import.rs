@@ -58,9 +58,9 @@ pub struct ImportFailure {
 pub struct ImportOptions<'a> {
     /// Labels where the photos came from (e.g. "LINE").
     pub source: Option<&'a str>,
-    /// Every folder below the source that holds photos becomes an album named after it
-    /// (an existing album of that name is reused); photos already in the library are added
-    /// to it too. Photos directly in the source folder go in no album.
+    /// Every folder that directly holds photos, the source folder included, becomes an album
+    /// named after it (an existing album of that name is reused); photos already in the
+    /// library are added to it too.
     pub folder_albums: bool,
     /// Import photos even if they were deleted from the library before.
     pub include_deleted: bool,
@@ -157,7 +157,7 @@ pub fn run(
     }
 
     let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
-    let album_of = if opts.folder_albums { folder_album_ids(lib, src, &files)? } else { HashMap::new() };
+    let album_of = if opts.folder_albums { folder_album_ids(lib, &files)? } else { HashMap::new() };
     // Photos (by hash) that end up in each album, added once the copying is done.
     let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
@@ -306,13 +306,14 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
-/// The album for each folder below `src` that directly holds one of `files`, keyed by folder.
-fn folder_album_ids(lib: &Library, src: &Path, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
+/// The album for each folder that directly holds one of `files`, keyed by folder.
+fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
-        if dir == src || out.contains_key(dir) {
+        if out.contains_key(dir) {
             continue;
         }
+        // A folder without a name (the root of a drive) can't name an album.
         let Some(name) = dir.file_name() else { continue };
         out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy())?);
     }

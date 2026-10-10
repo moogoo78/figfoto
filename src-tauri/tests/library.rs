@@ -701,13 +701,13 @@ fn organized_folders_become_albums() {
     let run = |albums: bool| import::run(&lib, &tree, &ImportOptions { folder_albums: albums, ..Default::default() }, &AtomicBool::new(false), |_| {}).unwrap();
 
     let p = run(true);
-    assert_eq!((p.added, p.skipped, p.albums), (4, 1, 2));
+    assert_eq!((p.added, p.skipped, p.albums), (4, 1, 3));
     let summary = || -> Vec<(String, i64)> {
         let mut a: Vec<_> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.count)).collect();
         a.sort();
         a
     };
-    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1)]);
+    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1), ("my-fotos".into(), 1)]);
     // Album order follows the date taken; the existing photo was linked, not copied again.
     let in_kyoto: Vec<String> = queries::list_photos(&lib, &Filter { album_id: Some(kyoto), ..Default::default() }, Sort::TakenAsc, 0, 10)
         .unwrap()
@@ -720,14 +720,24 @@ fn organized_folders_become_albums() {
 
     // Importing again adds nothing and makes no new albums.
     let p = run(true);
-    assert_eq!((p.added, p.skipped, p.albums), (0, 5, 2));
-    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1)]);
+    assert_eq!((p.added, p.skipped, p.albums), (0, 5, 3));
+    assert_eq!(summary(), vec![("2019 kyoto".into(), 3), ("beach".into(), 1), ("my-fotos".into(), 1)]);
 
     // A plain import never touches albums.
     write(&tree.join("2021 Taipei/d.jpg"), &photo(5, 6));
     let p = run(false);
     assert_eq!((p.added, p.albums), (1, 0));
-    assert_eq!(summary().len(), 2);
+    assert_eq!(summary().len(), 3);
+
+    // Picking an event folder itself, after it was imported as a plain import:
+    // "Import again" as organized folders links the existing photos into its album.
+    let event = src.join("261010 Fireworks");
+    write(&event.join("f1.jpg"), &photo(6, 7));
+    write(&event.join("f2.jpg"), &photo(1, 8));
+    import_all(&lib, &event);
+    let p = import::run(&lib, &event, &ImportOptions { folder_albums: true, ..Default::default() }, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!((p.added, p.skipped, p.albums), (0, 2, 1));
+    assert!(summary().contains(&("261010 Fireworks".into(), 2)));
 }
 
 /// Inserts `n` photo rows directly (no files), spread over many days, newest id = latest photo.
