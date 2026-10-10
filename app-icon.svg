@@ -1,6 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#1f6f8b"/>
-  <circle cx="352" cy="168" r="52" fill="#ffd166"/>
-  <path d="M40 392 L192 232 L288 336 L352 272 L472 392 V400 Q472 472 400 472 H112 Q40 472 40 400Z" fill="#e8f4f8"/>
-  <path d="M40 420 Q140 390 256 420 T472 420 V400 Q472 472 400 472 H112 Q40 472 40 400Z" fill="#7fc8e0"/>
+  <!-- leaf -->
+  <path d="M262 108 C290 52 360 44 396 62 C376 104 318 134 262 108Z" fill="#7bd389"/>
+  <path d="M262 108 C300 92 336 78 380 66" stroke="#4fae63" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <!-- rind, pith -->
+  <circle cx="256" cy="276" r="182" fill="#ff9f1c"/>
+  <circle cx="256" cy="276" r="162" fill="#fff4dc"/>
+  <!-- segments arranged as an aperture -->
+  <g fill="#ffbf47" stroke="#ffbf47" stroke-width="6" stroke-linejoin="round">
+    <path d="M281.1 237.4 L268.9 128.6 A148 148 0 0 1 377.2 191.1 L301.7 270.4 Z"/>
+    <path d="M301.9 278.4 L390.1 213.5 A148 148 0 0 1 390.1 338.5 L283.7 312.7 Z"/>
+    <path d="M276.9 317.0 L377.2 360.9 A148 148 0 0 1 268.9 423.4 L238.0 318.3 Z"/>
+    <path d="M230.9 314.6 L243.1 423.4 A148 148 0 0 1 134.8 360.9 L210.3 281.6 Z"/>
+    <path d="M210.1 273.6 L121.9 338.5 A148 148 0 0 1 121.9 213.5 L228.3 239.3 Z"/>
+    <path d="M235.1 235.0 L134.8 191.1 A148 148 0 0 1 243.1 128.6 L274.0 233.7 Z"/>
+  </g>
+  <circle cx="256" cy="276" r="20" fill="#fff4dc"/>
 </svg>
