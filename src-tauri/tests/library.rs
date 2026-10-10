@@ -601,3 +601,62 @@ fn emptying_trash_hands_files_to_the_system_trash() {
     assert_eq!(std::fs::read_dir(lib.trash_dir().join("albums")).unwrap().count(), 0);
     assert_eq!(std::fs::read_dir(lib.trash_dir().join("originals")).unwrap().count(), 0);
 }
+
+#[test]
+fn skips_hidden_nas_and_trash_entries() {
+    let Env { _tmp, src, lib } = env();
+    write(&src.join("keep.jpg"), &jpeg_bytes(&picture(0, 64, 64), 90));
+    write(&src.join("@eaDir/keep.jpg/SYNOPHOTO_THUMB_XL.jpg"), &jpeg_bytes(&picture(1, 64, 64), 90));
+    write(&src.join("._keep.jpg"), b"AppleDouble junk");
+    write(&src.join(".thumbnails/t.jpg"), &jpeg_bytes(&picture(2, 64, 64), 90));
+    write(&src.join("$RECYCLE.BIN/old.jpg"), &jpeg_bytes(&picture(2, 32, 32), 90));
+
+    let p = import_all(&lib, &src);
+    assert_eq!((p.total, p.added, p.failed), (1, 1, 0));
+}
+
+#[test]
+fn refuses_the_library_through_a_symlink() {
+    let Env { _tmp, src, lib } = env();
+    let link = src.join("lib-link");
+    std::os::unix::fs::symlink(&lib.root, &link).unwrap();
+    assert!(import::run(&lib, &link, None, &AtomicBool::new(false), |_| {}).is_err());
+    assert!(import::run(&lib, &link.join("originals/.."), None, &AtomicBool::new(false), |_| {}).is_err());
+}
+
+#[test]
+fn unreadable_folders_are_reported() {
+    use std::os::unix::fs::PermissionsExt;
+    let Env { _tmp, src, lib } = env();
+    write(&src.join("a.jpg"), &jpeg_bytes(&picture(0, 64, 64), 90));
+    let locked = src.join("locked");
+    write(&locked.join("b.jpg"), &jpeg_bytes(&picture(1, 64, 64), 90));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_dir(&locked).is_ok() {
+        return; // running as root: permissions aren't enforced
+    }
+    let p = import_all(&lib, &src);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!((p.added, p.failed), (1, 1));
+    assert!(p.errors[0].path.ends_with("locked"));
+}
+
+#[test]
+fn progress_reports_scanning_and_caps_errors() {
+    let Env { _tmp, src, lib } = env();
+    let n = import::MAX_SENT_ERRORS + 10;
+    for i in 0..n {
+        write(&src.join(format!("broken-{i}.jpg")), format!("not a jpeg {i}").as_bytes());
+    }
+    let events = std::sync::Mutex::new(Vec::new());
+    let p = import::run(&lib, &src, None, &AtomicBool::new(false), |p| events.lock().unwrap().push(p.clone())).unwrap();
+    let events = events.into_inner().unwrap();
+
+    assert!(events[0].scanning && !events.last().unwrap().scanning);
+    assert!(events.iter().all(|e| e.errors.len() <= import::MAX_SENT_ERRORS));
+    let last = events.last().unwrap();
+    assert!(last.finished && last.failed == n);
+    // The full list is still returned and saved.
+    assert_eq!(p.errors.len(), n);
+    assert_eq!(queries::import_errors(&lib, p.import_id).unwrap().len(), n);
+}

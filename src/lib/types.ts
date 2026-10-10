@@ -107,8 +107,11 @@ export interface ImportProgress {
   skipped: number;
   failed: number;
   current: string;
+  /** Still walking the folder; `total` is the count found so far. */
+  scanning: boolean;
   finished: boolean;
   cancelled: boolean;
+  /** Most recent errors only (capped); the full list is in the import history. */
   errors: { path: string; error: string }[];
 }
 

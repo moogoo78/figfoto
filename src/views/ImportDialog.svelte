@@ -71,18 +71,24 @@
       {:else}
         <div class="bar"><div style:width="{pct}%"></div></div>
         <div class="stats">
-          <span>{p?.done ?? 0} / {p?.total ?? "…"}</span>
+          {#if !p || p.scanning}
+            <span>Scanning… {p?.total ?? 0} photos found</span>
+          {:else}
+            <span>{p.done} / {p.total}</span>
+          {/if}
           <span class="ok">{p?.added ?? 0} added</span>
           <span>{p?.skipped ?? 0} already in library</span>
           {#if p?.failed}<span class="bad">{p.failed} failed</span>{/if}
         </div>
         {#if running}
-          <p class="current" title={p?.current}>{p?.current ?? "Scanning folder…"}</p>
+          <p class="current" title={p?.current}>{p?.current || "Scanning folder…"}</p>
         {:else if p}
           <p><strong>{p.cancelled ? "Import cancelled." : "Import finished."}</strong></p>
           {#if p.errors.length}
             <details open={p.errors.length < 5}>
-              <summary>{p.errors.length} error(s)</summary>
+              <summary>
+                {p.failed} error(s){#if p.errors.length < p.failed} — showing the last {p.errors.length}; see Import history for all{/if}
+              </summary>
               <ul class="errors">
                 {#each p.errors as err}<li><code>{err.path}</code><br />{err.error}</li>{/each}
               </ul>

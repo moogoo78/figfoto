@@ -125,10 +125,21 @@ pub async fn start_import(
     let (cancel, importing) = (state.import_cancel.clone(), state.importing.clone());
 
     std::thread::spawn(move || {
+        // Clears the flag however this thread ends, even by panic, so later imports aren't blocked.
+        struct Running(Arc<AtomicBool>);
+        impl Drop for Running {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let _running = Running(importing);
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        if let Err(e) = import::run(&lib, Path::new(&src), source.as_deref(), &cancel, emit) {
+        let run = || import::run(&lib, Path::new(&src), source.as_deref(), &cancel, emit);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+            .unwrap_or_else(|_| Err(AppError::msg("the import crashed")));
+        if let Err(e) = result {
             emit(&ImportProgress {
                 finished: true,
                 failed: 1,
@@ -136,7 +147,6 @@ pub async fn start_import(
                 ..Default::default()
             });
         }
-        importing.store(false, Ordering::SeqCst);
     });
     Ok(())
 }

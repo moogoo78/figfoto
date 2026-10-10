@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -23,6 +24,9 @@ const PREVIEW_EXTENSIONS: &[&str] = &["heic", "heif", "hif", "tif", "tiff"];
 
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Progress events carry only the most recent errors, so a flood of failures stays cheap to send.
+pub const MAX_SENT_ERRORS: usize = 50;
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportProgress {
@@ -33,6 +37,8 @@ pub struct ImportProgress {
     pub skipped: usize,
     pub failed: usize,
     pub current: String,
+    /// Still walking the source folder; `total` is the count found so far.
+    pub scanning: bool,
     pub finished: bool,
     pub cancelled: bool,
     pub errors: Vec<ImportFailure>,
@@ -63,7 +69,8 @@ pub fn needs_preview(path: &Path) -> bool {
 
 /// Copies every supported image under `src` into the library. Source files are only read.
 /// `source` optionally labels where the photos came from (e.g. "LINE").
-/// `on_progress` is called (throttled) while running and once more when finished.
+/// `on_progress` is called (throttled) while running and once more when finished; it gets at
+/// most the last `MAX_SENT_ERRORS` errors, while the returned progress and the database keep all.
 pub fn run(
     lib: &Library,
     src: &Path,
@@ -74,17 +81,11 @@ pub fn run(
     if !src.is_dir() {
         return Err(AppError::msg(format!("{} is not a folder", src.display())));
     }
-    if src.starts_with(&lib.root) || lib.root.starts_with(src) {
+    // Compare real paths so symlinks, `..` or a second mount point can't sneak the library in.
+    let (real_src, real_root) = (std::fs::canonicalize(src)?, std::fs::canonicalize(&lib.root)?);
+    if real_src.starts_with(&real_root) || real_root.starts_with(&real_src) {
         return Err(AppError::msg("cannot import from inside the library (or a parent of it)"));
     }
-
-    let files: Vec<PathBuf> = WalkDir::new(src)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_supported(e.path()))
-        .map(|e| e.into_path())
-        .collect();
 
     let import_id = {
         let conn = lib.conn();
@@ -95,18 +96,63 @@ pub fn run(
         conn.last_insert_rowid()
     };
 
-    let source = source.map(str::trim).filter(|s| !s.is_empty());
-    let progress = Mutex::new(ImportProgress { import_id, total: files.len(), ..Default::default() });
+    let emit = |p: &ImportProgress| {
+        if p.errors.len() <= MAX_SENT_ERRORS {
+            on_progress(p);
+        } else {
+            let tail = p.errors[p.errors.len() - MAX_SENT_ERRORS..].to_vec();
+            on_progress(&ImportProgress { current: p.current.clone(), errors: tail, ..*p });
+        }
+    };
     let last_emit = Mutex::new(Instant::now() - PROGRESS_INTERVAL);
+    let due = || {
+        let mut last = last_emit.lock().unwrap();
+        let due = last.elapsed() >= PROGRESS_INTERVAL;
+        if due {
+            *last = Instant::now();
+        }
+        due
+    };
+
+    // Scan first, reporting how many files were found so far.
+    let mut scan = ImportProgress { import_id, scanning: true, ..Default::default() };
+    emit(&scan);
+    let mut files = Vec::new();
+    let walker = WalkDir::new(src).follow_links(false).into_iter().filter_entry(|e| e.depth() == 0 || !is_ignored(e.file_name()));
+    for entry in walker {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        match entry {
+            Ok(e) if e.file_type().is_file() && is_supported(e.path()) => files.push(e.into_path()),
+            Ok(_) => {}
+            Err(e) => {
+                let path = e.path().unwrap_or(src).to_string_lossy().into_owned();
+                scan.failed += 1;
+                scan.errors.push(ImportFailure { path, error: e.to_string() });
+            }
+        }
+        if due() {
+            scan.total = files.len();
+            emit(&scan);
+        }
+    }
+
+    let source = source.map(str::trim).filter(|s| !s.is_empty());
+    let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
+    // Set when a problem makes every remaining file fail too (disk full, source gone).
+    let stop = AtomicBool::new(false);
     let claimed = Mutex::new(HashSet::<String>::new());
 
-    on_progress(&progress.lock().unwrap());
+    emit(&progress.lock().unwrap());
 
     files.par_iter().for_each(|path| {
-        if cancel.load(Ordering::Relaxed) {
+        if cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed) {
             return;
         }
-        let result = import_one(lib, import_id, source, path, &claimed);
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, path, &claimed)))
+            .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
+        let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
         let mut p = progress.lock().unwrap();
         p.done += 1;
         p.current = path.to_string_lossy().into_owned();
@@ -119,16 +165,19 @@ pub fn run(
                 p.errors.push(ImportFailure { path, error: e.to_string() });
             }
         }
-        let mut last = last_emit.lock().unwrap();
-        if last.elapsed() >= PROGRESS_INTERVAL {
-            *last = Instant::now();
-            on_progress(&p);
+        if let Some(reason) = fatal {
+            if !stop.swap(true, Ordering::Relaxed) {
+                p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("import stopped: {reason}") });
+            }
+        }
+        if due() {
+            emit(&p);
         }
     });
 
     let mut p = progress.into_inner().unwrap();
     p.finished = true;
-    p.cancelled = cancel.load(Ordering::Relaxed);
+    p.cancelled = cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed);
     {
         let mut conn = lib.conn();
         let tx = conn.transaction()?;
@@ -145,8 +194,39 @@ pub fn run(
         }
         tx.commit()?;
     }
-    on_progress(&p);
+    emit(&p);
     Ok(p)
+}
+
+/// Folders and files that are never photos to import: hidden entries (macOS `._*` resource
+/// forks, `.thumbnails`, another library's `.frutyfoto`), NAS thumbnail dirs and OS trash.
+fn is_ignored(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.starts_with('.') || ["@eaDir", "#recycle", "$RECYCLE.BIN", "System Volume Information"].contains(&name.as_ref())
+}
+
+/// Why the rest of the import is bound to fail too, if it is.
+fn fatal_reason(e: &AppError, src: &Path) -> Option<&'static str> {
+    let disk_full = match e {
+        AppError::Io(e) => e.kind() == io::ErrorKind::StorageFull,
+        AppError::Db(rusqlite::Error::SqliteFailure(e, _)) => e.code == rusqlite::ErrorCode::DiskFull,
+        _ => false,
+    };
+    if disk_full {
+        Some("the library disk is full")
+    } else if !src.is_dir() {
+        Some("the source folder is no longer available")
+    } else {
+        None
+    }
+}
+
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
+    panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic")
 }
 
 fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, claimed: &Mutex<HashSet<String>>) -> Result<Outcome> {
@@ -154,7 +234,7 @@ fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, c
 
     // Claim the hash so identical files within one import aren't copied twice.
     {
-        let mut claimed = claimed.lock().unwrap();
+        let mut claimed = claimed.lock().unwrap_or_else(|e| e.into_inner());
         if claimed.contains(&hash) {
             return Ok(Outcome::Duplicate);
         }
@@ -171,7 +251,7 @@ fn import_one(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, c
 
     let result = copy_and_index(lib, import_id, source, src, &hash);
     if result.is_err() {
-        claimed.lock().unwrap().remove(&hash);
+        claimed.lock().unwrap_or_else(|e| e.into_inner()).remove(&hash);
     }
     result.map(|_| Outcome::Added)
 }
