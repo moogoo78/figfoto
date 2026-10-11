@@ -543,12 +543,13 @@ pub fn list_settings_notes(lib: &Library) -> Result<Vec<String>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Distinct lenses (from EXIF or set by hand), for suggestions.
+/// Distinct lenses set by hand, for suggestions. EXIF lenses are left out: manual lenses
+/// are usually old ones the camera knows nothing about.
 pub fn list_lenses(lib: &Library) -> Result<Vec<String>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT COALESCE(lens_set, lens) AS l FROM photos
-         WHERE l IS NOT NULL AND l != '' AND trashed_at IS NULL ORDER BY l COLLATE NOCASE",
+        "SELECT DISTINCT lens_set FROM photos
+         WHERE lens_set IS NOT NULL AND trashed_at IS NULL ORDER BY lens_set COLLATE NOCASE",
     )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)

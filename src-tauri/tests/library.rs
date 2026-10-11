@@ -572,7 +572,7 @@ fn lens_can_be_set_by_hand() {
     queries::set_lens(&lib, &ids, "").unwrap();
     assert_eq!(lens(ids[0]), (None, false));
     assert_eq!(lens(ids[2]), (Some("M.12-40mm".into()), false));
-    assert_eq!(queries::list_lenses(&lib).unwrap(), vec!["M.12-40mm"]);
+    assert!(queries::list_lenses(&lib).unwrap().is_empty(), "EXIF lenses aren't suggested");
 }
 
 #[test]
