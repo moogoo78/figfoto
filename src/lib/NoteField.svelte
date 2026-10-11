@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { flash } from "./flash";
   import { t } from "./i18n.svelte";
 
   /** Free-text field for one photo. Saves on blur (or Ctrl+Enter) when the text changed. */
@@ -16,12 +17,17 @@
     text = value ?? "";
   });
 
+  let area: HTMLTextAreaElement | undefined = $state();
+
   function save() {
-    if (text.trim() !== (value ?? "")) onsave(text.trim());
+    if (text.trim() === (value ?? "")) return;
+    onsave(text.trim());
+    flash(area);
   }
 </script>
 
 <textarea
+  bind:this={area}
   bind:value={text}
   {placeholder}
   rows="3"

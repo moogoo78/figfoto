@@ -168,7 +168,7 @@
           onchange={(e) => {
             const id = Number(e.currentTarget.value);
             e.currentTarget.value = "";
-            if (id) store.mutate(() => api.addToAlbum(id, [p.id]));
+            if (id) store.mutate(() => api.addToAlbum(id, [p.id]), t("Added to album"));
           }}>
           <option value="">{t("Add to album…")}</option>
           {#each store.albums as a (a.id)}<option value={a.id}>{a.name}</option>{/each}

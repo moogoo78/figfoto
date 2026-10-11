@@ -233,6 +233,9 @@
               if (e.key === "Escape") newAlbumName = null;
               e.stopPropagation();
             }} />
+          <!-- mousedown would blur the name field and close it before the click lands -->
+          <button class="primary" onmousedown={(e) => e.preventDefault()} onclick={createAlbumFromSelection}
+            disabled={!newAlbumName.trim()}>{t("Save")}</button>
         {:else}
           <button onclick={async () => (newAlbumName = await suggestAlbumName())}>＋ {t("New album")}</button>
         {/if}

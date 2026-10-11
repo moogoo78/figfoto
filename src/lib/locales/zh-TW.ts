@@ -125,6 +125,8 @@ export const zhTW: Record<string, string> = {
   "Remove from list (photos keep their lens)": "從清單移除（照片保留鏡頭設定）",
   "No saved lenses yet.": "尚未儲存任何鏡頭。",
   "Lens added": "已新增鏡頭",
+  Save: "儲存",
+  Saved: "已儲存",
   Description: "說明文字",
   "What's in this photo…": "這張照片的內容…",
   "Private notes": "私人紀錄",
