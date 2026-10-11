@@ -82,6 +82,22 @@
 
       - trash
 
+   - describe (photo info)
+
+      - description
+
+      - camera settings
+
+         - set on many photos from the selection bar
+
+      - private notes (never shared or published)
+
+      - manual lens
+
+         - only when EXIF has no lens
+
+         - saved lens list (whole library)
+
    - organize (user view)
 
       - all fotos
@@ -110,7 +126,7 @@
 
          - favorite
 
-         - file name
+         - file name / notes
 
 - output
 
@@ -127,3 +143,5 @@
       - \*backblaze b2
 
    - \*publish album
+
+      - without private notes
