@@ -363,6 +363,11 @@ pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -
 }
 
 #[tauri::command]
+pub async fn list_settings_notes(state: State<'_, AppState>) -> Result<Vec<String>> {
+    queries::list_settings_notes(&*state.lib()?)
+}
+
+#[tauri::command]
 pub async fn set_note(state: State<'_, AppState>, ids: Vec<i64>, kind: String, text: String) -> Result<()> {
     queries::set_note(&*state.lib()?, &ids, &kind, &text)
 }

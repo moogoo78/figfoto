@@ -28,6 +28,7 @@ class Store {
   sources = $state.raw<string[]>([]);
   /** Lenses in the library (EXIF or set by hand), for suggestions. */
   lenses = $state.raw<string[]>([]);
+  settingsNotes = $state.raw<string[]>([]);
   imports = $state.raw<ImportRecord[]>([]);
 
   selection = new SvelteSet<number>();
@@ -115,7 +116,7 @@ class Store {
   }
 
   async refreshMeta() {
-    const [tags, albums, cameras, counts, imports, marks, sources, lenses] = await Promise.all([
+    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes] = await Promise.all([
       api.listTags(),
       api.listAlbums(),
       api.listCameras(),
@@ -124,10 +125,12 @@ class Store {
       api.listMarks(),
       api.listSources(),
       api.listLenses(),
+      api.listSettingsNotes(),
     ]);
     this.marks = marks;
     this.sources = sources;
     this.lenses = lenses;
+    this.settingsNotes = settingsNotes;
     this.imports = imports;
     this.tags = tags;
     this.albums = albums;

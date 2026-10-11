@@ -532,6 +532,17 @@ pub fn set_note(lib: &Library, ids: &[i64], kind: &str, text: &str) -> Result<()
     Ok(())
 }
 
+/// Distinct camera-settings notes, most used first, for suggestions.
+pub fn list_settings_notes(lib: &Library) -> Result<Vec<String>> {
+    let conn = lib.conn();
+    let mut stmt = conn.prepare(
+        "SELECT settings_note FROM photos WHERE settings_note IS NOT NULL AND trashed_at IS NULL
+         GROUP BY settings_note ORDER BY COUNT(*) DESC, settings_note LIMIT 50",
+    )?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// Distinct lenses (from EXIF or set by hand), for suggestions.
 pub fn list_lenses(lib: &Library) -> Result<Vec<String>> {
     let conn = lib.conn();

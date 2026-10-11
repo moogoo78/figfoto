@@ -66,5 +66,6 @@ export const api = {
   listLenses: () => invoke<string[]>("list_lenses"),
   setLens: (ids: number[], lens: string) => invoke<void>("set_lens", { ids, lens }),
   /** `kind` "note" is the description, "settings" the camera-settings notes. Empty clears. */
+  listSettingsNotes: () => invoke<string[]>("list_settings_notes"),
   setNote: (ids: number[], kind: "note" | "settings", text: string) => invoke<void>("set_note", { ids, kind, text }),
 };
