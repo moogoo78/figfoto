@@ -28,6 +28,10 @@ export interface Photo {
   mark: Mark | null;
   /** Where the photo came from, set by the user (e.g. "LINE"). */
   source: string | null;
+  /** Free-text description. */
+  note: string | null;
+  /** Free-text notes on how it was shot. */
+  settingsNote: string | null;
   /** Guessed from EXIF make/model. */
   device: "phone" | "camera" | "unknown";
   path: string;

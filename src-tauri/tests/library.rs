@@ -576,6 +576,31 @@ fn lens_can_be_set_by_hand() {
 }
 
 #[test]
+fn notes_can_be_written_and_searched() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    queries::set_note(&lib, &ids[..1], "note", "  Grandma's birthday ").unwrap();
+    queries::set_note(&lib, &ids[..2], "settings", "tripod, bulb 4s, ND8").unwrap();
+    assert!(queries::set_note(&lib, &ids, "lens", "x").is_err());
+
+    let p = queries::get_photo(&lib, ids[0]).unwrap().photo;
+    assert_eq!(p.note.as_deref(), Some("Grandma's birthday"));
+    assert_eq!(p.settings_note.as_deref(), Some("tripod, bulb 4s, ND8"));
+    assert_eq!(queries::get_photo(&lib, ids[2]).unwrap().photo.note, None);
+
+    let found = |text: &str| {
+        let f = Filter { text: Some(text.into()), ..Default::default() };
+        queries::list_ids(&lib, &f, Sort::TakenAsc, 0, 100).unwrap().len()
+    };
+    assert_eq!(found("birthday"), 1);
+    assert_eq!(found("bulb"), 2);
+
+    queries::set_note(&lib, &ids, "note", "").unwrap();
+    assert_eq!(queries::get_photo(&lib, ids[0]).unwrap().photo.note, None);
+    assert_eq!(found("birthday"), 0);
+}
+
+#[test]
 fn emptying_trash_hands_files_to_the_system_trash() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);

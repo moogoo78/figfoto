@@ -39,6 +39,10 @@ pub struct Photo {
     pub mark: Option<String>,
     /// Where the photo came from, set by the user (e.g. "LINE", "Facebook").
     pub source: Option<String>,
+    /// Free-text description of the photo.
+    pub note: Option<String>,
+    /// Free-text notes on how it was shot (filter, tripod, bulb time…).
+    pub settings_note: Option<String>,
     /// "phone", "camera" or "unknown", guessed from EXIF make/model.
     pub device: &'static str,
     /// Absolute paths, filled in from the library root. `display` is what the
@@ -51,7 +55,7 @@ pub struct Photo {
 const PHOTO_COLS: &str = "p.id, p.hash, p.rel_path, p.orig_name, p.source_path, p.taken_at, p.imported_at,
     p.width, p.height, p.file_size, p.mime, p.camera_make, p.camera_model, COALESCE(p.lens_set, p.lens), p.iso, p.f_number,
     p.exposure, p.focal_len, p.gps_lat, p.gps_lon, p.rating, p.favorite, p.trashed_at, p.mark, p.source,
-    p.lens_set IS NOT NULL";
+    p.lens_set IS NOT NULL, p.note, p.settings_note";
 
 fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
     let hash: String = r.get(1)?;
@@ -92,6 +96,8 @@ fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
         mark: r.get(23)?,
         source: r.get(24)?,
         lens_set: r.get(25)?,
+        note: r.get(26)?,
+        settings_note: r.get(27)?,
     })
 }
 
@@ -188,10 +194,15 @@ fn where_clause(f: &Filter) -> (String, Vec<Box<dyn ToSql>>) {
         args.push(Box::new(c.clone()));
     }
     if let Some(t) = f.text.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        clauses.push("(p.orig_name LIKE ? ESCAPE '\\' OR p.rel_path LIKE ? ESCAPE '\\')".into());
+        clauses.push(
+            "(p.orig_name LIKE ? ESCAPE '\\' OR p.rel_path LIKE ? ESCAPE '\\'
+              OR p.note LIKE ? ESCAPE '\\' OR p.settings_note LIKE ? ESCAPE '\\')"
+                .into(),
+        );
         let pat = format!("%{}%", t.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
-        args.push(Box::new(pat.clone()));
-        args.push(Box::new(pat));
+        for _ in 0..4 {
+            args.push(Box::new(pat.clone()));
+        }
     }
     if let Some(m) = f.mark.as_ref().filter(|s| !s.is_empty()) {
         if m == "any" {
@@ -505,6 +516,19 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
 pub fn set_lens(lib: &Library, ids: &[i64], lens: &str) -> Result<()> {
     let lens = Some(lens.trim()).filter(|s| !s.is_empty());
     lib.conn().execute(&format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({})", id_list(ids)), [lens])?;
+    Ok(())
+}
+
+/// Sets a free-text note: `kind` is "note" (description) or "settings" (camera settings).
+/// Empty clears it.
+pub fn set_note(lib: &Library, ids: &[i64], kind: &str, text: &str) -> Result<()> {
+    let col = match kind {
+        "note" => "note",
+        "settings" => "settings_note",
+        _ => return Err(AppError::msg(format!("unknown note kind: {kind}"))),
+    };
+    let text = Some(text.trim()).filter(|s| !s.is_empty());
+    lib.conn().execute(&format!("UPDATE photos SET {col} = ?1 WHERE id IN ({})", id_list(ids)), [text])?;
     Ok(())
 }
 

@@ -156,6 +156,11 @@ CREATE TABLE import_seen (
     r#"
 ALTER TABLE photos ADD COLUMN lens_set TEXT;
 "#,
+    // v10: free-text notes: a description, and how the photo was shot.
+    r#"
+ALTER TABLE photos ADD COLUMN note TEXT;
+ALTER TABLE photos ADD COLUMN settings_note TEXT;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

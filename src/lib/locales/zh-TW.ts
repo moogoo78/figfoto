@@ -45,7 +45,7 @@ export const zhTW: Record<string, string> = {
   Source: "來源",
   "Add…": "新增…",
   Remove: "移除",
-  "File name…": "檔案名稱…",
+  "File name or note…": "檔案名稱或註記…",
   Reset: "重設",
   Sort: "排序",
   "Newest first": "最新的優先",
@@ -108,6 +108,11 @@ export const zhTW: Record<string, string> = {
     "為使用手動鏡頭拍攝的照片設定鏡頭。留空送出可恢復為相機記錄的鏡頭。",
   "Lens set to {lens}": "鏡頭已設為 {lens}",
   "Lens cleared": "已清除鏡頭",
+  Description: "說明",
+  "What's in this photo…": "這張照片的內容…",
+  "Camera settings": "相機設定",
+  "Filter, tripod, bulb time, manual aperture…": "濾鏡、腳架、B 快門時間、手動光圈…",
+  "Saves when you click elsewhere. Ctrl+Enter also saves.": "點擊其他地方即儲存，Ctrl+Enter 也可儲存。",
 
   // Viewer
   Previous: "上一張",

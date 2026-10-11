@@ -50,7 +50,7 @@
   {#each q.tagIds as id (id)}
     <span class="chip">{tagName(id)}<button onclick={() => (q.tagIds = q.tagIds.filter((other) => other !== id))} aria-label={t("Remove")}>×</button></span>
   {/each}
-  <input class="search" type="search" placeholder={t("File name…")} bind:value={q.text} />
+  <input class="search" type="search" placeholder={t("File name or note…")} bind:value={q.text} />
   {#if store.hasQuery}<button onclick={() => store.clearQuery()}>{t("Reset")}</button>{/if}
 </div>
 

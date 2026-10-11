@@ -7,6 +7,7 @@
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
+  import NoteField from "../lib/NoteField.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import type { Mark, Photo, PhotoDetail } from "../lib/types";
 
@@ -48,7 +49,7 @@
   const step = (d: number) => (index = Math.min(list.total - 1, Math.max(0, index + d)));
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.target instanceof HTMLInputElement || !photo) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || !photo) return;
     const ids = [photo.id];
     if (e.key === "ArrowRight" || e.key === " ") step(1);
     else if (e.key === "ArrowLeft") step(-1);
@@ -129,6 +130,14 @@
         {#if p.sourcePath}<dt>{t("Original path")}</dt><dd class="path">{p.sourcePath}</dd>{/if}
         <dt>{t("File")}</dt><dd class="path">{p.relPath}</dd>
       </dl>
+
+      <h3>{t("Description")}</h3>
+      <NoteField id={p.id} value={p.note} placeholder={t("What's in this photo…")}
+        onsave={(text) => store.mutate(() => api.setNote([p.id], "note", text))} />
+
+      <h3>{t("Camera settings")}</h3>
+      <NoteField id={p.id} value={p.settingsNote} placeholder={t("Filter, tripod, bulb time, manual aperture…")}
+        onsave={(text) => store.mutate(() => api.setNote([p.id], "settings", text))} />
 
       <h3>{t("Tags")}</h3>
       <div class="chips">

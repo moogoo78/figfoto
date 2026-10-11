@@ -363,6 +363,11 @@ pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -
 }
 
 #[tauri::command]
+pub async fn set_note(state: State<'_, AppState>, ids: Vec<i64>, kind: String, text: String) -> Result<()> {
+    queries::set_note(&*state.lib()?, &ids, &kind, &text)
+}
+
+#[tauri::command]
 pub async fn set_source(state: State<'_, AppState>, ids: Vec<i64>, source: String) -> Result<()> {
     marks::set_source(&*state.lib()?, &ids, &source)
 }

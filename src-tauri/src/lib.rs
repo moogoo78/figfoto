@@ -61,6 +61,7 @@ pub fn run() {
             set_source,
             list_lenses,
             set_lens,
+            set_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running frutyfoto");
