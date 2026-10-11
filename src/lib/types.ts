@@ -16,6 +16,8 @@ export interface Photo {
   lens: string | null;
   /** `lens` was set by hand (manual lens) and can be reset to EXIF. */
   lensSet: boolean;
+  /** The camera recorded a lens, so none can be set by hand. */
+  exifLens: boolean;
   iso: number | null;
   fNumber: number | null;
   exposure: string | null;

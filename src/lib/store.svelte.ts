@@ -148,10 +148,12 @@ class Store {
   }
 
   /** Runs a mutation, reports errors, then refreshes lists and sidebar data. */
-  async mutate(fn: () => Promise<unknown>, okText?: string) {
+  /** Runs a change, then refreshes. `okText` may be built from the result. */
+  async mutate<T>(fn: () => Promise<T>, okText?: string | ((result: T) => string)) {
     try {
-      await fn();
-      if (okText) this.toast(okText);
+      const result = await fn();
+      const text = typeof okText === "function" ? okText(result) : okText;
+      if (text) this.toast(text);
     } catch (e) {
       this.toast(errorText(e), true);
     }

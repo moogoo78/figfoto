@@ -26,6 +26,8 @@ pub struct Photo {
     pub lens: Option<String>,
     /// Whether `lens` was set by hand (and can be reset to the EXIF value).
     pub lens_set: bool,
+    /// Whether the camera recorded a lens; such photos can't be given one by hand.
+    pub exif_lens: bool,
     pub iso: Option<i64>,
     pub f_number: Option<f64>,
     pub exposure: Option<String>,
@@ -55,7 +57,8 @@ pub struct Photo {
 const PHOTO_COLS: &str = "p.id, p.hash, p.rel_path, p.orig_name, p.source_path, p.taken_at, p.imported_at,
     p.width, p.height, p.file_size, p.mime, p.camera_make, p.camera_model, COALESCE(p.lens_set, p.lens), p.iso, p.f_number,
     p.exposure, p.focal_len, p.gps_lat, p.gps_lon, p.rating, p.favorite, p.trashed_at, p.mark, p.source,
-    p.lens_set IS NOT NULL, p.note, p.settings_note";
+    p.lens_set IS NOT NULL, p.note, p.settings_note,
+    COALESCE(p.lens, '') != ''";
 
 fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
     let hash: String = r.get(1)?;
@@ -98,6 +101,7 @@ fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
         lens_set: r.get(25)?,
         note: r.get(26)?,
         settings_note: r.get(27)?,
+        exif_lens: r.get(28)?,
     })
 }
 
@@ -512,16 +516,21 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
     Ok(())
 }
 
-/// Sets the lens by hand (for manual lenses that record none); empty clears it back to EXIF.
-/// A new lens name is added to the saved lens list.
-pub fn set_lens(lib: &Library, ids: &[i64], lens: &str) -> Result<()> {
+/// Sets the lens by hand (for manual lenses that record none); empty clears it. Photos whose
+/// camera recorded a lens are skipped. A new lens name is added to the saved lens list.
+/// Returns how many photos were changed.
+pub fn set_lens(lib: &Library, ids: &[i64], lens: &str) -> Result<usize> {
     let lens = Some(lens.trim()).filter(|s| !s.is_empty());
     let conn = lib.conn();
-    conn.execute(&format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({})", id_list(ids)), [lens])?;
+    let only_manual = if lens.is_some() { "AND COALESCE(lens, '') = ''" } else { "" };
+    let n = conn.execute(
+        &format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({}) {only_manual}", id_list(ids)),
+        [lens],
+    )?;
     if let Some(name) = lens {
         conn.execute("INSERT OR IGNORE INTO lenses (name) VALUES (?1)", [name])?;
     }
-    Ok(())
+    Ok(n)
 }
 
 #[derive(Debug, Clone, Serialize)]

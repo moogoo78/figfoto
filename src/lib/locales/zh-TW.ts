@@ -108,6 +108,8 @@ export const zhTW: Record<string, string> = {
     "為使用手動鏡頭拍攝的照片設定鏡頭。留空送出可恢復為相機記錄的鏡頭。",
   "Lens set to {lens}": "鏡頭已設為 {lens}",
   "Lens cleared": "已清除鏡頭",
+  "Lens set to {lens} on {n} photo(s); {m} have a lens from the camera": "已為 {n} 張照片設定鏡頭 {lens}；{m} 張已有相機記錄的鏡頭",
+  "The camera recorded the lens for this photo.": "這張照片的鏡頭已由相機記錄。",
   "Camera settings (tripod, bulb…)": "相機設定（腳架、B 快門…）",
   "Set the camera-settings note on the selected photos. It replaces what they had; enter nothing to clear it.":
     "為選取的照片設定相機設定註記，會取代原本的內容；留空送出可清除。",

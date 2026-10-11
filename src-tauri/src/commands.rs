@@ -373,7 +373,7 @@ pub async fn rename_lens(state: State<'_, AppState>, old: String, new: String) -
 }
 
 #[tauri::command]
-pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -> Result<()> {
+pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -> Result<usize> {
     queries::set_lens(&*state.lib()?, &ids, &lens)
 }
 

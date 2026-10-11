@@ -69,6 +69,7 @@ button {
 }
 button:hover:not(:disabled) { filter: brightness(1.15); }
 button:disabled { opacity: 0.5; cursor: default; }
+input:disabled { opacity: 0.5; cursor: not-allowed; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { color: var(--danger); }
 button.active { border-color: var(--accent); color: var(--accent-fg); }

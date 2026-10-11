@@ -151,7 +151,7 @@
       <SourceInput onset={(s) => store.mutate(() => api.setSource([p.id], s))} />
 
       <h3>{t("Lens")}</h3>
-      <LensInput onset={(lens) => store.mutate(() => api.setLens([p.id], lens))} />
+      <LensInput disabled={p.exifLens} onset={(lens) => store.mutate(() => api.setLens([p.id], lens))} />
 
       <h3>{t("Albums")}</h3>
       <div class="chips">

@@ -562,12 +562,13 @@ fn lens_can_be_set_by_hand() {
         (p.lens, p.lens_set)
     };
     assert_eq!(lens(ids[0]), (None, false));
+    assert!(queries::get_photo(&lib, ids[2]).unwrap().photo.exif_lens);
 
-    queries::set_lens(&lib, &ids, "  7Artisans 25mm F1.8 ").unwrap();
+    assert_eq!(queries::set_lens(&lib, &ids, "  7Artisans 25mm F1.8 ").unwrap(), 2);
     assert_eq!(lens(ids[0]), (Some("7Artisans 25mm F1.8".into()), true));
-    assert_eq!(lens(ids[2]).0.as_deref(), Some("7Artisans 25mm F1.8"), "set by hand wins over EXIF");
+    assert_eq!(lens(ids[2]), (Some("M.12-40mm".into()), false), "a lens the camera recorded is kept");
     let names = || queries::list_lenses(&lib).unwrap().into_iter().map(|l| (l.name, l.photos)).collect::<Vec<_>>();
-    assert_eq!(names(), vec![("7Artisans 25mm F1.8".into(), 3)]);
+    assert_eq!(names(), vec![("7Artisans 25mm F1.8".into(), 2)]);
 
     // Clearing goes back to what EXIF says.
     queries::set_lens(&lib, &ids, "").unwrap();
