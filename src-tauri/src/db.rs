@@ -161,6 +161,11 @@ ALTER TABLE photos ADD COLUMN lens_set TEXT;
 ALTER TABLE photos ADD COLUMN note TEXT;
 ALTER TABLE photos ADD COLUMN settings_note TEXT;
 "#,
+    // v11: the user's own lens list (manual lenses), kept even when no photo uses a lens.
+    r#"
+CREATE TABLE lenses (name TEXT PRIMARY KEY COLLATE NOCASE) WITHOUT ROWID;
+INSERT OR IGNORE INTO lenses (name) SELECT DISTINCT lens_set FROM photos WHERE lens_set IS NOT NULL;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

@@ -76,6 +76,9 @@
       onclick={() => store.setView({ kind: "marks" })}>
       <span>{t("Marks")}</span><small>{store.counts.marked || ""}</small>
     </button>
+    <button class="item" class:active={is({ kind: "lenses" })} onclick={() => store.setView({ kind: "lenses" })}>
+      <span>{t("Lenses")}</span><small>{store.lenses.length || ""}</small>
+    </button>
     <button class="item" class:active={is({ kind: "duplicates" })} onclick={() => store.setView({ kind: "duplicates" })}>
       <span>{t("Duplicates")}</span>
     </button>

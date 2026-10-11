@@ -61,6 +61,9 @@ pub fn run() {
             set_source,
             list_lenses,
             set_lens,
+            add_lens,
+            remove_lens,
+            rename_lens,
             set_note,
             list_settings_notes,
         ])

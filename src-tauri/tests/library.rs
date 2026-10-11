@@ -566,13 +566,28 @@ fn lens_can_be_set_by_hand() {
     queries::set_lens(&lib, &ids, "  7Artisans 25mm F1.8 ").unwrap();
     assert_eq!(lens(ids[0]), (Some("7Artisans 25mm F1.8".into()), true));
     assert_eq!(lens(ids[2]).0.as_deref(), Some("7Artisans 25mm F1.8"), "set by hand wins over EXIF");
-    assert_eq!(queries::list_lenses(&lib).unwrap(), vec!["7Artisans 25mm F1.8"]);
+    let names = || queries::list_lenses(&lib).unwrap().into_iter().map(|l| (l.name, l.photos)).collect::<Vec<_>>();
+    assert_eq!(names(), vec![("7Artisans 25mm F1.8".into(), 3)]);
 
     // Clearing goes back to what EXIF says.
     queries::set_lens(&lib, &ids, "").unwrap();
     assert_eq!(lens(ids[0]), (None, false));
     assert_eq!(lens(ids[2]), (Some("M.12-40mm".into()), false));
-    assert!(queries::list_lenses(&lib).unwrap().is_empty(), "EXIF lenses aren't suggested");
+    // The lens stays on the saved list, and EXIF lenses never join it.
+    assert_eq!(names(), vec![("7Artisans 25mm F1.8".into(), 0)]);
+
+    // A lens can be saved before any photo uses it, and renaming moves its photos along.
+    queries::add_lens(&lib, " Helios 44-2 ").unwrap();
+    queries::set_lens(&lib, &ids[..1], "helios 44-2").unwrap();
+    assert_eq!(names(), vec![("7Artisans 25mm F1.8".into(), 0), ("Helios 44-2".into(), 1)], "same name, any case");
+    queries::rename_lens(&lib, "Helios 44-2", "Helios 44-2 58mm f/2").unwrap();
+    assert_eq!(lens(ids[0]), (Some("Helios 44-2 58mm f/2".into()), true));
+
+    // Removing from the list leaves the photos alone.
+    queries::remove_lens(&lib, "Helios 44-2 58mm f/2").unwrap();
+    queries::remove_lens(&lib, "7Artisans 25mm F1.8").unwrap();
+    assert!(names().is_empty());
+    assert_eq!(lens(ids[0]).0.as_deref(), Some("Helios 44-2 58mm f/2"));
 }
 
 #[test]

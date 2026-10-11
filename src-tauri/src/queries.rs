@@ -513,9 +513,52 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
 }
 
 /// Sets the lens by hand (for manual lenses that record none); empty clears it back to EXIF.
+/// A new lens name is added to the saved lens list.
 pub fn set_lens(lib: &Library, ids: &[i64], lens: &str) -> Result<()> {
     let lens = Some(lens.trim()).filter(|s| !s.is_empty());
-    lib.conn().execute(&format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({})", id_list(ids)), [lens])?;
+    let conn = lib.conn();
+    conn.execute(&format!("UPDATE photos SET lens_set = ?1 WHERE id IN ({})", id_list(ids)), [lens])?;
+    if let Some(name) = lens {
+        conn.execute("INSERT OR IGNORE INTO lenses (name) VALUES (?1)", [name])?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SavedLens {
+    pub name: String,
+    pub photos: i64,
+}
+
+/// Adds a lens to the saved list, ahead of using it.
+pub fn add_lens(lib: &Library, name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::msg("lens name is empty"));
+    }
+    lib.conn().execute("INSERT OR IGNORE INTO lenses (name) VALUES (?1)", [name])?;
+    Ok(())
+}
+
+/// Removes a lens from the saved list. Photos set to it keep it.
+pub fn remove_lens(lib: &Library, name: &str) -> Result<()> {
+    lib.conn().execute("DELETE FROM lenses WHERE name = ?1", [name])?;
+    Ok(())
+}
+
+/// Renames a saved lens and every photo set to it (e.g. to fix a typo). Renaming onto
+/// another saved lens merges the two.
+pub fn rename_lens(lib: &Library, old: &str, new: &str) -> Result<()> {
+    let new = new.trim();
+    if new.is_empty() {
+        return Err(AppError::msg("lens name is empty"));
+    }
+    let mut conn = lib.conn();
+    let tx = conn.transaction()?;
+    tx.execute("UPDATE photos SET lens_set = ?2 WHERE lens_set = ?1 COLLATE NOCASE", [old, new])?;
+    tx.execute("DELETE FROM lenses WHERE name = ?1", [old])?;
+    tx.execute("INSERT OR IGNORE INTO lenses (name) VALUES (?1)", [new])?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -543,15 +586,16 @@ pub fn list_settings_notes(lib: &Library) -> Result<Vec<String>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Distinct lenses set by hand, for suggestions. EXIF lenses are left out: manual lenses
-/// are usually old ones the camera knows nothing about.
-pub fn list_lenses(lib: &Library) -> Result<Vec<String>> {
+/// The saved lens list with how many photos use each. EXIF lenses aren't in it: manual
+/// lenses are usually old ones the camera knows nothing about.
+pub fn list_lenses(lib: &Library) -> Result<Vec<SavedLens>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT lens_set FROM photos
-         WHERE lens_set IS NOT NULL AND trashed_at IS NULL ORDER BY lens_set COLLATE NOCASE",
+        "SELECT l.name, (SELECT COUNT(*) FROM photos p WHERE p.lens_set = l.name COLLATE NOCASE
+                                                   AND p.trashed_at IS NULL)
+         FROM lenses l ORDER BY l.name",
     )?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
+    let rows = stmt.query_map([], |r| Ok(SavedLens { name: r.get(0)?, photos: r.get(1)? }))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 

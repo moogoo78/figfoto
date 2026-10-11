@@ -353,8 +353,23 @@ pub async fn list_sources(state: State<'_, AppState>) -> Result<Vec<String>> {
 }
 
 #[tauri::command]
-pub async fn list_lenses(state: State<'_, AppState>) -> Result<Vec<String>> {
+pub async fn list_lenses(state: State<'_, AppState>) -> Result<Vec<queries::SavedLens>> {
     queries::list_lenses(&*state.lib()?)
+}
+
+#[tauri::command]
+pub async fn add_lens(state: State<'_, AppState>, name: String) -> Result<()> {
+    queries::add_lens(&*state.lib()?, &name)
+}
+
+#[tauri::command]
+pub async fn remove_lens(state: State<'_, AppState>, name: String) -> Result<()> {
+    queries::remove_lens(&*state.lib()?, &name)
+}
+
+#[tauri::command]
+pub async fn rename_lens(state: State<'_, AppState>, old: String, new: String) -> Result<()> {
+    queries::rename_lens(&*state.lib()?, &old, &new)
 }
 
 #[tauri::command]

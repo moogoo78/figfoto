@@ -6,6 +6,7 @@
   import ImportHistory from "./views/ImportHistory.svelte";
   import Library from "./views/Library.svelte";
   import Marks from "./views/Marks.svelte";
+  import Lenses from "./views/Lenses.svelte";
   import Sidebar from "./views/Sidebar.svelte";
   import Welcome from "./views/Welcome.svelte";
 
@@ -28,6 +29,8 @@
             <ImportHistory />
           {:else if store.view.kind === "marks"}
             <Marks />
+          {:else if store.view.kind === "lenses"}
+            <Lenses />
           {:else}
             <Library />
           {/if}

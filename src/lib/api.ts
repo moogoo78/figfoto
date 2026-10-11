@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, Sort, Tag,
+  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Sort, Tag,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -63,7 +63,10 @@ export const api = {
 
   listSources: () => invoke<string[]>("list_sources"),
   setSource: (ids: number[], source: string) => invoke<void>("set_source", { ids, source }),
-  listLenses: () => invoke<string[]>("list_lenses"),
+  listLenses: () => invoke<SavedLens[]>("list_lenses"),
+  addLens: (name: string) => invoke<void>("add_lens", { name }),
+  removeLens: (name: string) => invoke<void>("remove_lens", { name }),
+  renameLens: (old: string, name: string) => invoke<void>("rename_lens", { old, new: name }),
   setLens: (ids: number[], lens: string) => invoke<void>("set_lens", { ids, lens }),
   /** `kind` "note" is the description, "settings" the camera-settings notes. Empty clears. */
   listSettingsNotes: () => invoke<string[]>("list_settings_notes"),

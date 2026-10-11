@@ -22,7 +22,7 @@
     e.stopPropagation();
   }} />
 <datalist id={listId}>
-  {#each store.lenses as lens}<option value={lens}></option>{/each}
+  {#each store.lenses as lens}<option value={lens.name}></option>{/each}
 </datalist>
 
 <style>

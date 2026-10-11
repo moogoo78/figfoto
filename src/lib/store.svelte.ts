@@ -2,7 +2,7 @@ import { SvelteSet } from "svelte/reactivity";
 import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
-import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, Sort, Tag, View } from "./types";
+import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, View } from "./types";
 
 interface Toast {
   id: number;
@@ -27,7 +27,7 @@ class Store {
   marks = $state.raw<MarkSlot[]>([]);
   sources = $state.raw<string[]>([]);
   /** Lenses in the library (EXIF or set by hand), for suggestions. */
-  lenses = $state.raw<string[]>([]);
+  lenses = $state.raw<SavedLens[]>([]);
   settingsNotes = $state.raw<string[]>([]);
   imports = $state.raw<ImportRecord[]>([]);
 

@@ -40,6 +40,11 @@ export interface Photo {
   thumb: string;
 }
 
+export interface SavedLens {
+  name: string;
+  photos: number;
+}
+
 export interface Tag {
   id: number;
   name: string;
@@ -140,6 +145,7 @@ export type View =
   | { kind: "import"; id: number }
   | { kind: "marks" }
   | { kind: "mark"; mark: Mark }
+  | { kind: "lenses" }
   | { kind: "duplicates" }
   | { kind: "trash" };
 
