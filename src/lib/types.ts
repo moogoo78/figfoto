@@ -34,6 +34,8 @@ export interface Photo {
   note: string | null;
   /** Free-text notes on how it was shot. */
   settingsNote: string | null;
+  /** The photographer's own record; never shared or published. */
+  privateNote: string | null;
   /** Guessed from EXIF make/model. */
   device: "phone" | "camera" | "unknown";
   path: string;

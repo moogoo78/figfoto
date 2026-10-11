@@ -610,6 +610,9 @@ fn notes_can_be_written_and_searched() {
     };
     assert_eq!(found("birthday"), 1);
     assert_eq!(found("bulb"), 2);
+    queries::set_note(&lib, &ids[2..], "private", "first try with the new filter").unwrap();
+    assert_eq!(queries::get_photo(&lib, ids[2]).unwrap().photo.private_note.as_deref(), Some("first try with the new filter"));
+    assert_eq!(found("new filter"), 1);
     queries::set_note(&lib, &ids[2..], "settings", "handheld").unwrap();
     assert_eq!(queries::list_settings_notes(&lib).unwrap(), vec!["tripod, bulb 4s, ND8", "handheld"]);
 

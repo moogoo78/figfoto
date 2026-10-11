@@ -68,7 +68,8 @@ export const api = {
   removeLens: (name: string) => invoke<void>("remove_lens", { name }),
   renameLens: (old: string, name: string) => invoke<void>("rename_lens", { old, new: name }),
   setLens: (ids: number[], lens: string) => invoke<number>("set_lens", { ids, lens }),
-  /** `kind` "note" is the description, "settings" the camera-settings notes. Empty clears. */
   listSettingsNotes: () => invoke<string[]>("list_settings_notes"),
-  setNote: (ids: number[], kind: "note" | "settings", text: string) => invoke<void>("set_note", { ids, kind, text }),
+  /** `kind` "note" is the description, "settings" the camera-settings notes, "private" the
+   * photographer's private notes. Empty clears. */
+  setNote: (ids: number[], kind: "note" | "settings" | "private", text: string) => invoke<void>("set_note", { ids, kind, text }),
 };

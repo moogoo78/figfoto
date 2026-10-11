@@ -139,6 +139,10 @@
       <NoteField id={p.id} value={p.settingsNote} placeholder={t("Filter, tripod, bulb time, manual aperture…")}
         onsave={(text) => store.mutate(() => api.setNote([p.id], "settings", text))} />
 
+      <h3 title={t("Your own record, for you only. Never shown when sharing or publishing.")}>🔒 {t("Private notes")}</h3>
+      <NoteField id={p.id} value={p.privateNote} placeholder={t("Your own record, for you only. Never shown when sharing or publishing.")}
+        onsave={(text) => store.mutate(() => api.setNote([p.id], "private", text))} />
+
       <h3>{t("Tags")}</h3>
       <div class="chips">
         {#each detail?.tags ?? [] as tag (tag.id)}

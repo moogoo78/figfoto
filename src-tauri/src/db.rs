@@ -166,6 +166,10 @@ ALTER TABLE photos ADD COLUMN settings_note TEXT;
 CREATE TABLE lenses (name TEXT PRIMARY KEY COLLATE NOCASE) WITHOUT ROWID;
 INSERT OR IGNORE INTO lenses (name) SELECT DISTINCT lens_set FROM photos WHERE lens_set IS NOT NULL;
 "#,
+    // v12: the photographer's private notes, never shared or published.
+    r#"
+ALTER TABLE photos ADD COLUMN private_note TEXT;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
