@@ -7,6 +7,7 @@
   import Library from "./views/Library.svelte";
   import Marks from "./views/Marks.svelte";
   import Lenses from "./views/Lenses.svelte";
+  import TopicView from "./views/TopicView.svelte";
   import Sidebar from "./views/Sidebar.svelte";
   import Welcome from "./views/Welcome.svelte";
 
@@ -31,6 +32,8 @@
             <Marks />
           {:else if store.view.kind === "lenses"}
             <Lenses />
+          {:else if store.view.kind === "topic"}
+            <TopicView id={store.view.id} />
           {:else}
             <Library />
           {/if}

@@ -622,6 +622,41 @@ fn notes_can_be_written_and_searched() {
 }
 
 #[test]
+fn albums_group_into_topics() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    let kyoto = queries::create_album(&lib, "2019 Kyoto").unwrap();
+    let bali = queries::create_album(&lib, "2020 Bali").unwrap();
+    queries::add_to_album(&lib, kyoto, &ids).unwrap();
+
+    let travel = queries::create_topic(&lib, " Travel ").unwrap();
+    assert_eq!(queries::create_topic(&lib, "travel").unwrap(), travel, "same name, any case");
+    let family = queries::create_topic(&lib, "Family").unwrap();
+
+    queries::set_album_topic(&lib, &[kyoto, bali], Some(travel)).unwrap();
+    let topics = queries::list_topics(&lib).unwrap();
+    let summary = |ts: &[queries::Topic]| ts.iter().map(|t| (t.name.clone(), t.albums)).collect::<Vec<_>>();
+    assert_eq!(summary(&topics), vec![("Family".into(), 0), ("Travel".into(), 2)]);
+    assert!(topics[1].cover.is_some(), "cover from Kyoto, the album with photos");
+    let topic_of = |id: i64| queries::list_albums(&lib).unwrap().into_iter().find(|a| a.id == id).unwrap().topic_id;
+    assert_eq!(topic_of(kyoto), Some(travel));
+
+    queries::set_album_topic(&lib, &[bali], Some(family)).unwrap();
+    assert_eq!(topic_of(bali), Some(family));
+    queries::set_album_topic(&lib, &[bali], None).unwrap();
+    assert_eq!(topic_of(bali), None);
+
+    queries::rename_topic(&lib, travel, "Trips").unwrap();
+    assert_eq!(queries::list_topics(&lib).unwrap()[1].name, "Trips");
+
+    // Deleting a topic keeps its albums and their photos.
+    queries::delete_topic(&lib, travel).unwrap();
+    assert_eq!(topic_of(kyoto), None);
+    assert_eq!(queries::list_albums(&lib).unwrap().len(), 2);
+    assert_eq!(queries::list_albums(&lib).unwrap().iter().find(|a| a.id == kyoto).unwrap().count, 3);
+}
+
+#[test]
 fn emptying_trash_hands_files_to_the_system_trash() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);

@@ -268,6 +268,31 @@ pub async fn delete_album(state: State<'_, AppState>, id: i64) -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn list_topics(state: State<'_, AppState>) -> Result<Vec<queries::Topic>> {
+    queries::list_topics(&*state.lib()?)
+}
+
+#[tauri::command]
+pub async fn create_topic(state: State<'_, AppState>, name: String) -> Result<i64> {
+    queries::create_topic(&*state.lib()?, &name)
+}
+
+#[tauri::command]
+pub async fn rename_topic(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
+    queries::rename_topic(&*state.lib()?, id, &name)
+}
+
+#[tauri::command]
+pub async fn delete_topic(state: State<'_, AppState>, id: i64) -> Result<()> {
+    queries::delete_topic(&*state.lib()?, id)
+}
+
+#[tauri::command]
+pub async fn set_album_topic(state: State<'_, AppState>, album_ids: Vec<i64>, topic_id: Option<i64>) -> Result<()> {
+    queries::set_album_topic(&*state.lib()?, &album_ids, topic_id)
+}
+
+#[tauri::command]
 pub async fn add_to_album(state: State<'_, AppState>, album_id: i64, ids: Vec<i64>) -> Result<()> {
     queries::add_to_album(&*state.lib()?, album_id, &ids)
 }

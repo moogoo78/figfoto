@@ -3,6 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { store } from "../lib/store.svelte";
+  import AlbumOptions from "../lib/AlbumOptions.svelte";
   import type { MarkActionKind, MarkSlot } from "../lib/types";
 
   const KINDS: { value: MarkActionKind; text: string }[] = [
@@ -72,7 +73,7 @@
               {:else if slot.kind === "album"}
                 <select value={slot.target} onchange={(e) => save(slot, { target: e.currentTarget.value })}>
                   <option value="">{t("Choose album…")}</option>
-                  {#each store.albums as a (a.id)}<option value={String(a.id)}>{a.name}</option>{/each}
+                  <AlbumOptions stringIds />
                 </select>
               {:else if slot.kind === "tag"}
                 <input placeholder={t("Tag")} value={slot.target} onchange={(e) => save(slot, { target: e.currentTarget.value })} />

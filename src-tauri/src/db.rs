@@ -170,6 +170,15 @@ INSERT OR IGNORE INTO lenses (name) SELECT DISTINCT lens_set FROM photos WHERE l
     r#"
 ALTER TABLE photos ADD COLUMN private_note TEXT;
 "#,
+    // v13: topics group albums (Travel, Family…); an album is in at most one topic.
+    r#"
+CREATE TABLE topics (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+ALTER TABLE albums ADD COLUMN topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

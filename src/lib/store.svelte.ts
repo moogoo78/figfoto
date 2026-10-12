@@ -2,7 +2,7 @@ import { SvelteSet } from "svelte/reactivity";
 import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
-import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, View } from "./types";
+import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, Topic, View } from "./types";
 
 interface Toast {
   id: number;
@@ -22,6 +22,7 @@ class Store {
 
   tags = $state.raw<Tag[]>([]);
   albums = $state.raw<Album[]>([]);
+  topics = $state.raw<Topic[]>([]);
   cameras = $state.raw<string[]>([]);
   counts = $state.raw<Counts>({ all: 0, favorites: 0, trash: 0, marked: 0 });
   marks = $state.raw<MarkSlot[]>([]);
@@ -116,7 +117,7 @@ class Store {
   }
 
   async refreshMeta() {
-    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes] = await Promise.all([
+    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes, topics] = await Promise.all([
       api.listTags(),
       api.listAlbums(),
       api.listCameras(),
@@ -126,6 +127,7 @@ class Store {
       api.listSources(),
       api.listLenses(),
       api.listSettingsNotes(),
+      api.listTopics(),
     ]);
     this.marks = marks;
     this.sources = sources;
@@ -134,12 +136,14 @@ class Store {
     this.imports = imports;
     this.tags = tags;
     this.albums = albums;
+    this.topics = topics;
     this.cameras = cameras;
     this.counts = counts;
     // Leave views that no longer exist.
     const v = this.view;
     if (
       (v.kind === "album" && !albums.some((a) => a.id === v.id)) ||
+      (v.kind === "topic" && !topics.some((tp) => tp.id === v.id)) ||
       (v.kind === "tag" && !tags.some((tag) => tag.id === v.id)) ||
       (v.kind === "import" && !imports.some((i) => i.id === v.id))
     ) {
@@ -159,6 +163,14 @@ class Store {
     }
     this.version++;
     await this.refreshMeta().catch(() => {});
+  }
+
+  /** Albums grouped by topic, topics by name, then the albums with no topic (`topic` null).
+   * Empty topics are included unless `skipEmpty`. */
+  albumsByTopic(skipEmpty = false): { topic: Topic | null; albums: Album[] }[] {
+    const groups = this.topics.map((topic) => ({ topic: topic as Topic | null, albums: this.albums.filter((a) => a.topicId === topic.id) }));
+    groups.push({ topic: null, albums: this.albums.filter((a) => a.topicId == null || !this.topics.some((tp) => tp.id === a.topicId)) });
+    return skipEmpty ? groups.filter((g) => g.albums.length) : groups;
   }
 
   markSlot(mark: Mark): MarkSlot | undefined {

@@ -6,6 +6,7 @@
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
   import PhotoForm from "../lib/PhotoForm.svelte";
+  import AlbumOptions from "../lib/AlbumOptions.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import type { Mark, Photo, PhotoDetail } from "../lib/types";
 
@@ -153,7 +154,7 @@
             if (id) store.mutate(() => api.addToAlbum(id, [p.id]), t("Added to album"));
           }}>
           <option value="">{t("Add to album…")}</option>
-          {#each store.albums as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+          <AlbumOptions />
         </select>
       {/if}
 

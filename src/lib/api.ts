@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Sort, Tag,
+  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Sort, Tag, Topic,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -41,6 +41,12 @@ export const api = {
   listAlbums: () => invoke<Album[]>("list_albums"),
   createAlbum: (name: string) => invoke<number>("create_album", { name }),
   renameAlbum: (id: number, name: string) => invoke<void>("rename_album", { id, name }),
+  listTopics: () => invoke<Topic[]>("list_topics"),
+  createTopic: (name: string) => invoke<number>("create_topic", { name }),
+  renameTopic: (id: number, name: string) => invoke<void>("rename_topic", { id, name }),
+  deleteTopic: (id: number) => invoke<void>("delete_topic", { id }),
+  /** `topicId` null takes the albums out of their topic. */
+  setAlbumTopic: (albumIds: number[], topicId: number | null) => invoke<void>("set_album_topic", { albumIds, topicId }),
   deleteAlbum: (id: number) => invoke<void>("delete_album", { id }),
   addToAlbum: (albumId: number, ids: number[]) => invoke<void>("add_to_album", { albumId, ids }),
   removeFromAlbum: (albumId: number, ids: number[]) => invoke<void>("remove_from_album", { albumId, ids }),

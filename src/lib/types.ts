@@ -61,6 +61,16 @@ export interface Album {
   createdAt: string;
   count: number;
   cover: string | null;
+  /** The topic the album is filed under, if any. */
+  topicId: number | null;
+}
+
+/** A group of albums, like "Travel" or "Family". */
+export interface Topic {
+  id: number;
+  name: string;
+  albums: number;
+  cover: string | null;
 }
 
 export interface PhotoDetail {
@@ -144,6 +154,7 @@ export type View =
   | { kind: "library" }
   | { kind: "favorites" }
   | { kind: "album"; id: number }
+  | { kind: "topic"; id: number }
   | { kind: "tag"; id: number }
   | { kind: "imports" }
   | { kind: "import"; id: number }

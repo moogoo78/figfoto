@@ -8,6 +8,7 @@
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
+  import AlbumOptions from "../lib/AlbumOptions.svelte";
   import SettingsInput from "../lib/SettingsInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
@@ -68,6 +69,7 @@
   const selected = $derived([...store.selection]);
   const inTrash = $derived(store.view.kind === "trash");
   const albumId = $derived(store.view.kind === "album" ? store.view.id : null);
+  const currentAlbum = $derived(albumId == null ? undefined : store.albums.find((a) => a.id === albumId));
   const markView = $derived(store.view.kind === "mark" ? store.view.mark : null);
 
   function select(i: number, e: MouseEvent) {
@@ -176,6 +178,16 @@
       {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("imported {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
     </span>
     <span class="grow"></span>
+    {#if currentAlbum && store.topics.length}
+      <select title={t("Topic")} value={currentAlbum.topicId ?? ""}
+        onchange={(e) => {
+          const v = e.currentTarget.value;
+          store.mutate(() => api.setAlbumTopic([currentAlbum.id], v ? Number(v) : null));
+        }}>
+        <option value="">{t("No topic")}</option>
+        {#each store.topics as tp (tp.id)}<option value={tp.id}>{tp.name}</option>{/each}
+      </select>
+    {/if}
     {#if markView && list.total > 0}
       <button class:danger={markView === "x"} class:primary={markView !== "x"}
         disabled={!!store.runningMark || !store.markSlot(markView)?.kind}
@@ -247,7 +259,7 @@
               if (id) store.mutate(() => api.addToAlbum(id, selected), t("Added to album"));
             }}>
             <option value="">{t("Add to album…")}</option>
-            {#each store.albums as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+            <AlbumOptions />
           </select>
         {/if}
         {#if albumId != null}

@@ -314,6 +314,8 @@ pub struct Album {
     pub created_at: String,
     pub count: i64,
     pub cover: Option<String>,
+    /// The topic the album is filed under, if any.
+    pub topic_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -432,7 +434,8 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
               (SELECT hash FROM photos WHERE id = a.cover_photo_id AND trashed_at IS NULL),
               (SELECT p.hash FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
                  WHERE ap.album_id = a.id AND p.trashed_at IS NULL
-                 ORDER BY ap.position, p.taken_at LIMIT 1))
+                 ORDER BY ap.position, p.taken_at LIMIT 1)),
+            a.topic_id
          FROM albums a ORDER BY a.name COLLATE NOCASE",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -443,9 +446,84 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
             created_at: r.get(2)?,
             count: r.get(3)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
+            topic_id: r.get(5)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// A group of albums, like "Travel" or "Family".
+#[derive(Debug, Clone, Serialize)]
+pub struct Topic {
+    pub id: i64,
+    pub name: String,
+    /// Number of albums in the topic.
+    pub albums: i64,
+    /// Cover of the first album (by name) that has one.
+    pub cover: Option<String>,
+}
+
+pub fn list_topics(lib: &Library) -> Result<Vec<Topic>> {
+    let topics: Vec<(i64, String)> = {
+        let conn = lib.conn();
+        let mut stmt = conn.prepare("SELECT id, name FROM topics ORDER BY name COLLATE NOCASE")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let albums = list_albums(lib)?;
+    Ok(topics
+        .into_iter()
+        .map(|(id, name)| {
+            let mine = albums.iter().filter(|a| a.topic_id == Some(id));
+            Topic {
+                id,
+                name,
+                albums: mine.clone().count() as i64,
+                cover: mine.filter_map(|a| a.cover.clone()).next(),
+            }
+        })
+        .collect())
+}
+
+/// The topic named `name` (ignoring case), created if there is none.
+pub fn create_topic(lib: &Library, name: &str) -> Result<i64> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::msg("topic name is empty"));
+    }
+    let conn = lib.conn();
+    let existing = conn
+        .query_row("SELECT id FROM topics WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT 1", [name], |r| r.get(0))
+        .optional()?;
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+    conn.execute("INSERT INTO topics (name, created_at) VALUES (?1, ?2)", params![name, now()])?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn rename_topic(lib: &Library, id: i64, name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::msg("topic name is empty"));
+    }
+    lib.conn().execute("UPDATE topics SET name = ?1 WHERE id = ?2", params![name, id])?;
+    Ok(())
+}
+
+/// Deletes a topic; its albums stay and move out of it.
+pub fn delete_topic(lib: &Library, id: i64) -> Result<()> {
+    lib.conn().execute("DELETE FROM topics WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// Files albums under a topic, or takes them out of their topic with `None`.
+pub fn set_album_topic(lib: &Library, album_ids: &[i64], topic_id: Option<i64>) -> Result<()> {
+    lib.conn().execute(
+        &format!("UPDATE albums SET topic_id = ?1 WHERE id IN ({})", id_list(album_ids)),
+        [topic_id],
+    )?;
+    Ok(())
 }
 
 pub fn create_album(lib: &Library, name: &str) -> Result<i64> {
