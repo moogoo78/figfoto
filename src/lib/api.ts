@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Sort, Tag, Topic,
+  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Section, Sort, Tag, Topic,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -10,8 +10,8 @@ export const api = {
   openLibrary: (path: string, create: boolean) => invoke<{ root: string }>("open_library", { path, create }),
   currentLibrary: () => invoke<{ root: string } | null>("current_library"),
 
-  startImport: (src: string, source: string, folderAlbums: boolean, includeDeleted: boolean) =>
-    invoke<void>("start_import", { src, source: source || null, folderAlbums, includeDeleted }),
+  startImport: (src: string, source: string, folderAlbums: boolean, folderSections: boolean, includeDeleted: boolean) =>
+    invoke<void>("start_import", { src, source: source || null, folderAlbums, folderSections, includeDeleted }),
   cancelImport: () => invoke<void>("cancel_import"),
   listImports: () => invoke<ImportRecord[]>("list_imports"),
   importErrors: (importId: number) => invoke<{ path: string; error: string }[]>("import_errors", { importId }),
@@ -47,6 +47,18 @@ export const api = {
   deleteTopic: (id: number) => invoke<void>("delete_topic", { id }),
   /** `topicId` null takes the albums out of their topic. */
   setAlbumTopic: (albumIds: number[], topicId: number | null) => invoke<void>("set_album_topic", { albumIds, topicId }),
+  listSections: (albumId: number) => invoke<Section[]>("list_sections", { albumId }),
+  /** Reuses the album's section with that name (any case), else adds one at the end. */
+  createSection: (albumId: number, name: string) => invoke<number>("create_section", { albumId, name }),
+  renameSection: (id: number, name: string) => invoke<void>("rename_section", { id, name }),
+  deleteSection: (id: number) => invoke<void>("delete_section", { id }),
+  /** `delta` -1 moves the section up, 1 down. */
+  moveSection: (id: number, delta: number) => invoke<void>("move_section", { id, delta }),
+  /** `sectionId` null puts the photos in no section. */
+  setPhotoSection: (albumId: number, ids: number[], sectionId: number | null) =>
+    invoke<void>("set_photo_section", { albumId, ids, sectionId }),
+  /** Returns how many days the unsectioned photos were split into. */
+  splitByDay: (albumId: number) => invoke<number>("split_by_day", { albumId }),
   deleteAlbum: (id: number) => invoke<void>("delete_album", { id }),
   addToAlbum: (albumId: number, ids: number[]) => invoke<void>("add_to_album", { albumId, ids }),
   removeFromAlbum: (albumId: number, ids: number[]) => invoke<void>("remove_from_album", { albumId, ids }),

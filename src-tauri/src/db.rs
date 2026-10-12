@@ -179,6 +179,19 @@ CREATE TABLE topics (
 );
 ALTER TABLE albums ADD COLUMN topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL;
 "#,
+    // v14: sections split an album into named parts (Kyoto, Nara…); a photo is in at most
+    // one section of each album.
+    r#"
+CREATE TABLE album_sections (
+    id       INTEGER PRIMARY KEY,
+    album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    name     TEXT NOT NULL,
+    position INTEGER NOT NULL
+);
+CREATE INDEX idx_album_sections_album ON album_sections(album_id);
+ALTER TABLE album_photos ADD COLUMN section_id INTEGER REFERENCES album_sections(id) ON DELETE SET NULL;
+ALTER TABLE imports ADD COLUMN folder_sections INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

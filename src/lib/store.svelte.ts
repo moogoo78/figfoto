@@ -2,7 +2,7 @@ import { SvelteSet } from "svelte/reactivity";
 import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
-import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, Topic, View } from "./types";
+import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Section, Sort, Tag, Topic, View } from "./types";
 
 interface Toast {
   id: number;
@@ -23,6 +23,8 @@ class Store {
   tags = $state.raw<Tag[]>([]);
   albums = $state.raw<Album[]>([]);
   topics = $state.raw<Topic[]>([]);
+  /** Sections of the album being viewed. */
+  sections = $state.raw<Section[]>([]);
   cameras = $state.raw<string[]>([]);
   counts = $state.raw<Counts>({ all: 0, favorites: 0, trash: 0, marked: 0 });
   marks = $state.raw<MarkSlot[]>([]);
@@ -38,7 +40,7 @@ class Store {
 
   importOpen = $state(false);
   /** Source folder to prefill when the import dialog opens. */
-  importPreset = $state<{ dir: string; folderAlbums: boolean } | null>(null);
+  importPreset = $state<{ dir: string; folderAlbums: boolean; folderSections: boolean } | null>(null);
   progress = $state.raw<ImportProgress | null>(null);
   toasts = $state<Toast[]>([]);
   /** Mark whose batch is running, with copy progress. */
@@ -92,6 +94,7 @@ class Store {
       const lib = await api.openLibrary(path, create);
       this.root = lib.root;
       this.view = { kind: "library" };
+      if (this.sort === "section") this.sort = "takenDesc";
       this.clearQuery();
       this.selection.clear();
       await this.refreshMeta();
@@ -101,14 +104,30 @@ class Store {
     }
   }
 
-  openImport(dir = "", folderAlbums = false) {
-    this.importPreset = dir ? { dir, folderAlbums } : null;
+  openImport(dir = "", folderAlbums = false, folderSections = false) {
+    this.importPreset = dir ? { dir, folderAlbums, folderSections } : null;
     this.importOpen = true;
   }
 
   setView(view: View) {
     this.view = view;
     this.selection.clear();
+    // An album split into sections opens by section; "by section" means nothing elsewhere.
+    if (view.kind === "album") {
+      if (this.albums.find((a) => a.id === view.id)?.sections) this.sort = "section";
+      else if (this.sort === "section") this.sort = "takenDesc";
+    } else if (this.sort === "section") {
+      this.sort = "takenDesc";
+    }
+    this.sections = [];
+    this.#loadSections().catch(() => {});
+  }
+
+  /** Loads the sections of the album being viewed (none elsewhere). */
+  async #loadSections() {
+    const v = this.view;
+    const sections = v.kind === "album" ? await api.listSections(v.id) : [];
+    if (this.view === v) this.sections = sections;
   }
 
   clearQuery() {
@@ -139,6 +158,7 @@ class Store {
     this.topics = topics;
     this.cameras = cameras;
     this.counts = counts;
+    await this.#loadSections();
     // Leave views that no longer exist.
     const v = this.view;
     if (

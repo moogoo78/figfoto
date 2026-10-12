@@ -63,6 +63,16 @@ export interface Album {
   cover: string | null;
   /** The topic the album is filed under, if any. */
   topicId: number | null;
+  /** Number of sections the album is split into. */
+  sections: number;
+}
+
+/** A named part of an album, like "Kyoto" in "2019 Japan". */
+export interface Section {
+  id: number;
+  name: string;
+  position: number;
+  count: number;
 }
 
 /** A group of albums, like "Travel" or "Family". */
@@ -77,11 +87,17 @@ export interface PhotoDetail {
   photo: Photo;
   tags: Tag[];
   albums: Album[];
+  /** The photo's section name in each album it has one in, keyed by album id. */
+  sections: Record<number, string>;
 }
 
 export interface Bucket {
   day: string;
   count: number;
+  /** When sorted by section: the section id, or 0 for the photos in none. */
+  section: number | null;
+  /** When sorted by section: the section name (empty for no section). */
+  label: string;
 }
 
 export interface Counts {
@@ -108,7 +124,8 @@ export interface Filter {
   trashed: boolean;
 }
 
-export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc";
+/** "section" only applies inside an album (elsewhere it sorts oldest first). */
+export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "section";
 
 export interface ImportRecord {
   id: number;
@@ -124,6 +141,8 @@ export interface ImportRecord {
   cancelled: boolean;
   /** Each source folder was turned into an album. */
   folderAlbums: boolean;
+  /** Subfolders were turned into sections of those albums. */
+  folderSections: boolean;
   /** Photos from this import still in the library. */
   photoCount: number;
   cover: string | null;

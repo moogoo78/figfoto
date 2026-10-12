@@ -25,6 +25,9 @@
   let showFilters = $state(false);
   /** Name being typed for a new album made from the selection; null when closed. */
   let newAlbumName = $state<string | null>(null);
+  /** Album page: the Sections menu, and the name being typed for a new section. */
+  let sectionMenu = $state(false);
+  let newSectionName = $state<string | null>(null);
 
   const key = $derived(JSON.stringify([store.filter, store.sort]));
   let loadedKey = "";
@@ -131,6 +134,47 @@
     if (action === "album") newAlbumName = day;
   }
 
+  /** Adds a section to the album; the selected photos, if any, go into it. */
+  async function createSection() {
+    const name = newSectionName?.trim();
+    newSectionName = null;
+    if (!name || albumId == null) return;
+    const [album, ids] = [albumId, selected];
+    await store.mutate(async () => {
+      const id = await api.createSection(album, name);
+      if (ids.length) await api.setPhotoSection(album, ids, id);
+    }, ids.length ? t("Section “{name}” made with {n} photo(s)", { name, n: ids.length }) : t("Section “{name}” added", { name }));
+    store.sort = "section";
+  }
+
+  function splitByDay() {
+    sectionMenu = false;
+    if (albumId == null) return;
+    const album = albumId;
+    store.mutate(() => api.splitByDay(album), (n) => (n ? t("Split into {n} day(s)", { n }) : t("Every photo is already in a section")));
+    store.sort = "section";
+  }
+
+  function moveToSection(section: number | null) {
+    if (albumId == null) return;
+    const [album, ids] = [albumId, selected];
+    store.mutate(() => api.setPhotoSection(album, ids, section), t("Moved {n} photo(s)", { n: ids.length }));
+    if (section != null) store.sort = "section";
+  }
+
+  async function onsection(action: "rename" | "up" | "down" | "delete" | "drop", id: number, arg: { name?: string; ids?: number[] }) {
+    if (albumId == null) return;
+    const album = albumId;
+    if (action === "rename" && arg.name) store.mutate(() => api.renameSection(id, arg.name!));
+    else if (action === "up" || action === "down") store.mutate(() => api.moveSection(id, action === "up" ? -1 : 1));
+    else if (action === "drop" && arg.ids?.length) {
+      store.mutate(() => api.setPhotoSection(album, arg.ids!, id || null), t("Moved {n} photo(s)", { n: arg.ids.length }));
+    } else if (action === "delete") {
+      const msg = t("Delete section “{name}”? Its photos stay in the album.", { name: arg.name ?? "" });
+      if (await ask(msg, { title: t("Delete section"), kind: "warning" })) store.mutate(() => api.deleteSection(id));
+    }
+  }
+
   function trashOrRestore(ids: number[]) {
     store.selection.clear();
     if (inTrash) store.mutate(() => api.restorePhotos(ids), t("Restored {n} photo(s)", { n: ids.length }));
@@ -162,7 +206,7 @@
   const singleRating = $derived(selected.length === 1 ? (list.find(selected[0])?.rating ?? 0) : 0);
 </script>
 
-<svelte:window {onkeydown} />
+<svelte:window {onkeydown} onpointerdown={(e) => sectionMenu && !(e.target as Element).closest?.(".secwrap") && (sectionMenu = false)} />
 
 <section class="library">
   <header>
@@ -178,6 +222,35 @@
       {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("imported {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
     </span>
     <span class="grow"></span>
+    {#if currentAlbum}
+      {#if newSectionName != null}
+        <input
+          class="albumname"
+          placeholder={selected.length ? t("Section for {n} selected", { n: selected.length }) : t("Section name")}
+          bind:value={newSectionName}
+          use:focusSelect
+          onblur={() => (newSectionName = null)}
+          onkeydown={(e) => {
+            if (e.key === "Enter") createSection();
+            if (e.key === "Escape") newSectionName = null;
+            e.stopPropagation();
+          }} />
+        <button class="primary" onmousedown={(e) => e.preventDefault()} onclick={createSection}
+          disabled={!newSectionName.trim()}>{t("Save")}</button>
+      {:else}
+        <span class="secwrap">
+          <button onclick={() => (sectionMenu = !sectionMenu)} title={t("Split the album into parts, like Kyoto and Nara")}>{t("Sections")} ▾</button>
+          {#if sectionMenu}
+            <div class="menu" role="menu">
+              <button role="menuitem" onclick={() => { sectionMenu = false; newSectionName = ""; }}>
+                {selected.length ? t("New section from {n} selected", { n: selected.length }) : t("New section")}
+              </button>
+              <button role="menuitem" onclick={splitByDay} title={t("Photos in no section go into one section per day")}>{t("Split by day")}</button>
+            </div>
+          {/if}
+        </span>
+      {/if}
+    {/if}
     {#if currentAlbum && store.topics.length}
       <select title={t("Topic")} value={currentAlbum.topicId ?? ""}
         onchange={(e) => {
@@ -207,6 +280,7 @@
       <option value="takenAsc">{t("Oldest first")}</option>
       <option value="importedDesc">{t("Recently imported")}</option>
       <option value="ratingDesc">{t("Highest rated")}</option>
+      {#if albumId != null}<option value="section">{t("By section")}</option>{/if}
     </select>
     <input type="range" min="100" max="360" step="20" bind:value={store.thumbSize} title={t("Thumbnail size")} />
   </header>
@@ -263,6 +337,18 @@
           </select>
         {/if}
         {#if albumId != null}
+          <select
+            onchange={(e) => {
+              const v = e.currentTarget.value;
+              e.currentTarget.value = "";
+              if (v === "new") newSectionName = "";
+              else if (v) moveToSection(v === "none" ? null : Number(v));
+            }}>
+            <option value="">{t("Move to section…")}</option>
+            {#each store.sections as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+            {#if store.sections.length}<option value="none">{t("No section")}</option>{/if}
+            <option value="new">{t("New section…")}</option>
+          </select>
           <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected))}>{t("Remove from album")}</button>
           {#if selected.length === 1}
             <button onclick={() => store.mutate(() => api.setAlbumCover(albumId, selected[0]), t("Cover set"))}>{t("Set as cover")}</button>
@@ -294,7 +380,8 @@
       </div>
     {:else}
       <VirtualGrid bind:this={grid} {list} onselect={select} onopen={(i) => (viewerIndex = i)}
-        ondayaction={inTrash ? undefined : dayAction} showOrigin={albumId != null} />
+        ondayaction={inTrash ? undefined : dayAction} showOrigin={albumId != null}
+        onsection={albumId != null && store.sort === "section" ? onsection : undefined} />
     {/if}
   </div>
 </section>
@@ -317,5 +404,11 @@
   .marks button { padding: 0 7px; height: 26px; line-height: 26px; border: none; }
   .marks .unmark { background: var(--cell); color: var(--muted); }
   .albumname { width: 200px; }
+  .secwrap { position: relative; }
+  .menu { position: absolute; right: 0; top: 100%; z-index: 20; display: flex; flex-direction: column; min-width: 170px;
+    margin-top: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.35); }
+  .menu button { border: none; background: none; text-align: left; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .menu button:hover { background: var(--hover); }
   .empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); }
 </style>

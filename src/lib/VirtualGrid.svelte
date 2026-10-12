@@ -11,6 +11,7 @@
     onopen,
     onselect,
     ondayaction,
+    onsection,
     showOrigin = false,
   }: {
     list: PhotoList;
@@ -18,6 +19,9 @@
     onselect: (index: number, e: MouseEvent) => void;
     /** Header buttons: select a day's photos, or make an album from them. */
     ondayaction?: (action: "select" | "album", day: string, start: number, count: number) => void;
+    /** Section headings (album sorted by section): rename, reorder or delete a section, or
+     * drop photos (`ids`) on it. Section 0 is "No section". */
+    onsection?: (action: "rename" | "up" | "down" | "delete" | "drop", section: number, arg: { name?: string; ids?: number[] }) => void;
     /** Badge each photo with where it came from (phone, camera, LINE…). */
     showOrigin?: boolean;
   } = $props();
@@ -38,7 +42,7 @@
   const cell = $derived(Math.max(40, (width - PAD - padRight - GAP * (cols - 1)) / cols));
 
   type Row =
-    | { kind: "header"; top: number; day: string; count: number; start: number }
+    | { kind: "header"; top: number; day: string; count: number; start: number; section: number | null; label: string }
     | { kind: "photos"; top: number; start: number; n: number };
 
   const layout = $derived.by(() => {
@@ -46,8 +50,8 @@
     let top = PAD;
     let index = 0;
     for (const b of list.buckets) {
-      if (b.day) {
-        rows.push({ kind: "header", top, day: b.day, count: b.count, start: index });
+      if (b.day || b.section != null) {
+        rows.push({ kind: "header", top, day: b.day, count: b.count, start: index, section: b.section, label: b.label });
         top += HEADER;
       }
       for (let i = 0; i < b.count; i += cols) {
@@ -82,20 +86,42 @@
   );
 
   const days = $derived(
-    layout.rows.flatMap((r) => (r.kind === "header" ? [{ day: r.day, top: r.top }] : [])),
+    layout.rows.flatMap((r) => (r.kind === "header" && r.day ? [{ day: r.day, top: r.top }] : [])),
   );
   /** Day-grouped and long enough that scrolling alone gets tedious. */
   const showScrubber = $derived(days.length > 1 && layout.height > height * 3);
 
-  /** Day label of the section at the top of the viewport. */
+  /** Label of the day (or section) at the top of the viewport. */
   const currentDay = $derived.by(() => {
-    let day = "";
+    let label = "";
     for (const r of layout.rows) {
       if (r.top > scrollTop + 8) break;
-      if (r.kind === "header") day = r.day;
+      if (r.kind === "header") label = r.section != null ? r.label || t("No section") : fmtDay(r.day);
     }
-    return scrollTop > HEADER ? day : "";
+    return scrollTop > HEADER ? label : "";
   });
+
+  /** Section whose name is being edited, and the one photos are dragged over. */
+  let editing = $state<number | null>(null);
+  let dropOn = $state<number | null>(null);
+  const isPhotoDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes("application/x-foto-ids");
+
+  function commitName(section: number, old: string, name: string) {
+    editing = null;
+    if (name.trim() && name.trim() !== old) onsection?.("rename", section, { name: name.trim() });
+  }
+
+  function dropPhotos(e: DragEvent, section: number) {
+    e.preventDefault();
+    dropOn = null;
+    const raw = e.dataTransfer?.getData("application/x-foto-ids");
+    if (raw) onsection?.("drop", section, { ids: JSON.parse(raw) });
+  }
+
+  const focusSelect = (el: HTMLInputElement) => {
+    el.focus();
+    el.select();
+  };
 
   $effect(() => {
     if (cells.length) list.ensure(cells[0].i, cells[cells.length - 1].i);
@@ -125,9 +151,39 @@
 <div class="grid" id="photo-grid" class:scrubbed={showScrubber} bind:this={el} bind:clientWidth={width} bind:clientHeight={height} onscroll={() => (scrollTop = el.scrollTop)}>
   <div class="spacer" style:height="{layout.height}px">
     {#each visible as row (row.top)}
-      {#if row.kind === "header"}
+      {#if row.kind === "header" && row.section != null}
+        {@const id = row.section}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <h3 class="day section" class:drop={dropOn === id} style:top="{row.top}px"
+          ondragover={(e) => { if (onsection && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
+          ondragleave={() => dropOn === id && (dropOn = null)}
+          ondrop={(e) => dropPhotos(e, id)}>
+          {#if editing === id}
+            <input class="secname" value={row.label} use:focusSelect
+              onblur={(e) => commitName(id, row.label, e.currentTarget.value)}
+              onkeydown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") editing = null;
+                e.stopPropagation();
+              }} />
+          {:else}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="name" class:none={!id} title={id && onsection ? t("Double-click to rename") : ""}
+              ondblclick={() => id && onsection && (editing = id)}>{row.label || t("No section")}</span>
+          {/if}
+          <span class="count">{row.count}</span>
+          {#if ondayaction && row.count}
+            <button class="link dayact" onclick={() => ondayaction("select", "", row.start, row.count)}>{t("Select")}</button>
+          {/if}
+          {#if id && onsection}
+            <button class="link dayact" title={t("Move up")} onclick={() => onsection("up", id, {})}>↑</button>
+            <button class="link dayact" title={t("Move down")} onclick={() => onsection("down", id, {})}>↓</button>
+            <button class="link dayact" title={t("Delete section")} onclick={() => onsection("delete", id, { name: row.label })}>×</button>
+          {/if}
+        </h3>
+      {:else if row.kind === "header"}
         <h3 class="day" style:top="{row.top}px">
-          {fmtDay(row.day)} <span>{row.count}</span>
+          {fmtDay(row.day)} <span class="count">{row.count}</span>
           {#if ondayaction}
             <button class="link dayact" onclick={() => ondayaction("select", row.day, row.start, row.count)}>{t("Select")}</button>
             <button class="link dayact" title={t("Create an album from this day's photos")}
@@ -166,7 +222,7 @@
     {/each}
   </div>
 </div>
-{#if currentDay}<div class="pill">{fmtDay(currentDay)}</div>{/if}
+{#if currentDay}<div class="pill">{currentDay}</div>{/if}
 {#if showScrubber}
   <TimelineScrubber {days} contentHeight={layout.height} viewHeight={height} {scrollTop}
     onscroll={(top) => (el.scrollTop = top)} />
@@ -184,7 +240,10 @@
     position: absolute; left: 16px; right: 16px; height: 44px; margin: 0;
     display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600;
   }
-  .day span { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .day .count { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .section.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
+  .section .none { color: var(--muted); font-weight: 400; }
+  .secname { font-size: 14px; width: 260px; }
   .dayact { font-size: 12px; font-weight: 400; margin-left: 6px; visibility: hidden; }
   .day:hover .dayact { visibility: visible; }
   .cell {

@@ -62,6 +62,11 @@ pub struct ImportOptions<'a> {
     /// named after it (an existing album of that name is reused); photos already in the
     /// library are added to it too.
     pub folder_albums: bool,
+    /// With `folder_albums`: only the folders right under the source folder become albums;
+    /// photos in deeper folders go into a section of that album named after the rest of the
+    /// path ("Kyoto", "Kyoto / Day 1"). Photos directly in the source folder still go to an
+    /// album named after it.
+    pub folder_sections: bool,
     /// Import photos even if they were deleted from the library before.
     pub include_deleted: bool,
 }
@@ -108,8 +113,8 @@ pub fn run(
     let import_id = {
         let conn = lib.conn();
         conn.execute(
-            "INSERT INTO imports (source_dir, started_at, folder_albums) VALUES (?1, ?2, ?3)",
-            params![src.to_string_lossy(), now(), opts.folder_albums],
+            "INSERT INTO imports (source_dir, started_at, folder_albums, folder_sections) VALUES (?1, ?2, ?3, ?4)",
+            params![src.to_string_lossy(), now(), opts.folder_albums, opts.folder_albums && opts.folder_sections],
         )?;
         conn.last_insert_rowid()
     };
@@ -157,9 +162,9 @@ pub fn run(
     }
 
     let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
-    let album_of = if opts.folder_albums { folder_album_ids(lib, &files)? } else { HashMap::new() };
-    // Photos (by hash) that end up in each album, added once the copying is done.
-    let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
+    let album_of = if opts.folder_albums { folder_album_ids(lib, src, &files, opts.folder_sections)? } else { HashMap::new() };
+    // Photos (by hash) that end up in each album and section, added once the copying is done.
+    let album_hashes = Mutex::new(BTreeMap::<(i64, Option<String>), Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
     // Set when a problem makes every remaining file fail too (disk full, source gone).
     let stop = AtomicBool::new(false);
@@ -174,7 +179,7 @@ pub fn run(
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, src, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
         if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
-            album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
+            album_hashes.lock().unwrap().entry(album.clone()).or_default().push(hash.clone());
         }
         let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
         let mut p = progress.lock().unwrap();
@@ -201,14 +206,16 @@ pub fn run(
     });
 
     let mut p = progress.into_inner().unwrap();
-    for (album, hashes) in album_hashes.into_inner().unwrap() {
-        if let Err(e) = add_by_hash(lib, album, &hashes) {
+    let mut albums_done = HashSet::new();
+    for ((album, section), hashes) in album_hashes.into_inner().unwrap() {
+        if let Err(e) = add_by_hash(lib, album, section.as_deref(), &hashes) {
             p.failed += 1;
             p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
         } else {
-            p.albums += 1;
+            albums_done.insert(album);
         }
     }
+    p.albums = albums_done.len();
     p.finished = true;
     p.cancelled = cancel.load(Ordering::Relaxed) || stop.load(Ordering::Relaxed);
     {
@@ -306,22 +313,38 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
-/// The album for each folder that directly holds one of `files`, keyed by folder.
-fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
+/// The album (and, with `sections`, the section name) for each folder that directly holds
+/// one of `files`, keyed by folder.
+fn folder_album_ids(
+    lib: &Library,
+    root: &Path,
+    files: &[PathBuf],
+    sections: bool,
+) -> Result<HashMap<PathBuf, (i64, Option<String>)>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
         if out.contains_key(dir) {
             continue;
         }
-        // A folder without a name (the root of a drive) can't name an album.
-        let Some(name) = dir.file_name() else { continue };
-        out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy())?);
+        let parts: Vec<String> = match dir.strip_prefix(root) {
+            Ok(rel) if sections => rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect(),
+            _ => Vec::new(),
+        };
+        let (name, section) = match parts.split_first() {
+            Some((album, rest)) => (album.clone(), Some(rest.join(" / ")).filter(|s| !s.is_empty())),
+            // A folder without a name (the root of a drive) can't name an album.
+            None => match dir.file_name() {
+                Some(name) => (name.to_string_lossy().into_owned(), None),
+                None => continue,
+            },
+        };
+        out.insert(dir.to_path_buf(), (queries::find_or_create_album(lib, &name)?, section));
     }
     Ok(out)
 }
 
-/// Adds the photos with these hashes to `album`, in date order.
-fn add_by_hash(lib: &Library, album: i64, hashes: &[String]) -> Result<()> {
+/// Adds the photos with these hashes to `album`, in date order, and into `section` if given.
+fn add_by_hash(lib: &Library, album: i64, section: Option<&str>, hashes: &[String]) -> Result<()> {
     let mut photos: Vec<(String, i64)> = Vec::with_capacity(hashes.len());
     {
         let conn = lib.conn();
@@ -338,7 +361,17 @@ fn add_by_hash(lib: &Library, album: i64, hashes: &[String]) -> Result<()> {
     photos.sort();
     photos.dedup();
     let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
-    queries::add_to_album(lib, album, &ids)
+    queries::add_to_album(lib, album, &ids)?;
+    if let Some(name) = section {
+        let section = queries::create_section(lib, album, name)?;
+        // Photos the user already put in a section keep it.
+        let conn = lib.conn();
+        let mut stmt = conn.prepare("UPDATE album_photos SET section_id = ?1 WHERE album_id = ?2 AND photo_id = ?3 AND section_id IS NULL")?;
+        for id in &ids {
+            stmt.execute([section, album, *id])?;
+        }
+    }
+    Ok(())
 }
 
 fn import_one(

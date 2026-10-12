@@ -117,6 +117,7 @@ pub async fn start_import(
     src: String,
     source: Option<String>,
     folder_albums: bool,
+    folder_sections: bool,
     include_deleted: bool,
 ) -> Result<()> {
     let lib = state.lib()?;
@@ -138,7 +139,7 @@ pub async fn start_import(
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, include_deleted };
+        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, folder_sections, include_deleted };
         let run = || import::run(&lib, Path::new(&src), &opts, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
             .unwrap_or_else(|_| Err(AppError::msg("the import crashed")));
@@ -290,6 +291,41 @@ pub async fn delete_topic(state: State<'_, AppState>, id: i64) -> Result<()> {
 #[tauri::command]
 pub async fn set_album_topic(state: State<'_, AppState>, album_ids: Vec<i64>, topic_id: Option<i64>) -> Result<()> {
     queries::set_album_topic(&*state.lib()?, &album_ids, topic_id)
+}
+
+#[tauri::command]
+pub async fn list_sections(state: State<'_, AppState>, album_id: i64) -> Result<Vec<queries::Section>> {
+    queries::list_sections(&*state.lib()?, album_id)
+}
+
+#[tauri::command]
+pub async fn create_section(state: State<'_, AppState>, album_id: i64, name: String) -> Result<i64> {
+    queries::create_section(&*state.lib()?, album_id, &name)
+}
+
+#[tauri::command]
+pub async fn rename_section(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
+    queries::rename_section(&*state.lib()?, id, &name)
+}
+
+#[tauri::command]
+pub async fn delete_section(state: State<'_, AppState>, id: i64) -> Result<()> {
+    queries::delete_section(&*state.lib()?, id)
+}
+
+#[tauri::command]
+pub async fn move_section(state: State<'_, AppState>, id: i64, delta: i64) -> Result<()> {
+    queries::move_section(&*state.lib()?, id, delta)
+}
+
+#[tauri::command]
+pub async fn set_photo_section(state: State<'_, AppState>, album_id: i64, ids: Vec<i64>, section_id: Option<i64>) -> Result<()> {
+    queries::set_photo_section(&*state.lib()?, album_id, &ids, section_id)
+}
+
+#[tauri::command]
+pub async fn split_by_day(state: State<'_, AppState>, album_id: i64) -> Result<usize> {
+    queries::split_by_day(&*state.lib()?, album_id)
 }
 
 #[tauri::command]

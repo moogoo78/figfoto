@@ -11,6 +11,8 @@
   let origin = $state("");
   /** Organized folders: each folder holding photos becomes an album. */
   let folderAlbums = $state(false);
+  /** With folderAlbums: top folders become albums, deeper ones sections of them. */
+  let folderSections = $state(false);
   /** Also bring back photos that were deleted from the library (trash emptied) before. */
   let includeDeleted = $state(false);
   let started = $state(false);
@@ -20,6 +22,7 @@
     if (store.importOpen && store.importPreset && !started) {
       source = store.importPreset.dir;
       folderAlbums = store.importPreset.folderAlbums;
+      folderSections = store.importPreset.folderSections;
       store.importPreset = null;
     }
   });
@@ -36,7 +39,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin, folderAlbums, includeDeleted);
+      await api.startImport(source, origin, folderAlbums, folderAlbums && folderSections, includeDeleted);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -73,8 +76,16 @@
         </div>
         {#if folderAlbums}
           <p class="hint">
-            {t("Each folder that holds photos, including the chosen folder itself, becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy.")}
+            {#if folderSections}
+              {t("Each folder right inside the chosen folder becomes an album named after it, and the folders inside those become sections of that album (e.g. 2019 Japan / Kyoto). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.")}
+            {:else}
+              {t("Each folder that holds photos, including the chosen folder itself, becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy.")}
+            {/if}
           </p>
+          <label class="check">
+            <input type="checkbox" bind:checked={folderSections} />
+            <span>{t("Subfolders become sections")} <small>{t("(2019 Japan/Kyoto → album “2019 Japan”, section “Kyoto”)")}</small></span>
+          </label>
         {/if}
         <p class="hint">
           {t("Photos are copied into your library under")} <code>originals/YYYY/MM/DD</code>{t(". The source folder is not changed. Files already in the library are skipped.")}
