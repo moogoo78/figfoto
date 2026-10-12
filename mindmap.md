@@ -154,6 +154,36 @@
 
       - \*backblaze b2
 
-   - \*publish album
+   - \*publish album (online)
 
-      - without private notes
+      - desktop is the master (originals + full library)
+
+      - online copy: web-size images + albums / topics / photo info
+
+         - without private notes, without originals
+
+      - mark album / topic "Online", then Sync (only what changed goes up)
+
+      - organize online while the computer is off
+
+         - albums, topics, covers, ratings, descriptions
+
+         - phone upload → online Inbox
+
+         - online keeps a list of edits
+
+      - sync back
+
+         - replay online edits on the library
+
+         - Inbox photos imported like any import (hash dedupe)
+
+         - same field changed on both sides: latest edit wins
+
+         - online trash → desktop trash (restorable)
+
+         - real clash → "Needs review" list
+
+      - needs: stable ids (photo hash, album / topic UUID) + updated_at
+
+      - hosting: own Docker server or Cloudflare (static site = read-only)
