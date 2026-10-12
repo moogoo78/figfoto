@@ -133,7 +133,8 @@ export const zhTW: Record<string, string> = {
   "Your own record, for you only. Never shown when sharing or publishing.": "拍照者自己的紀錄，只給自己看，分享或公開時不會出現。",
   "Camera settings": "相機設定",
   "Filter, tripod, bulb time, manual aperture…": "濾鏡、腳架、B 快門時間、手動光圈…",
-  "Saves when you click elsewhere. Ctrl+Enter also saves.": "點擊其他地方即儲存，Ctrl+Enter 也可儲存。",
+  "Save (Ctrl+Enter)": "儲存 (Ctrl+Enter)",
+  "Unsaved changes": "尚未儲存的變更",
 
   // Viewer
   Previous: "上一張",

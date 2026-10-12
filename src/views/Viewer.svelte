@@ -5,9 +5,7 @@
   import type { PhotoList } from "../lib/photoList.svelte";
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
-  import SourceInput from "../lib/SourceInput.svelte";
-  import LensInput from "../lib/LensInput.svelte";
-  import NoteField from "../lib/NoteField.svelte";
+  import PhotoForm from "../lib/PhotoForm.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import type { Mark, Photo, PhotoDetail } from "../lib/types";
 
@@ -131,17 +129,7 @@
         <dt>{t("File")}</dt><dd class="path">{p.relPath}</dd>
       </dl>
 
-      <h3>{t("Description")}</h3>
-      <NoteField id={p.id} value={p.note} placeholder={t("What's in this photo…")}
-        onsave={(text) => store.mutate(() => api.setNote([p.id], "note", text))} />
-
-      <h3>{t("Camera settings")}</h3>
-      <NoteField id={p.id} value={p.settingsNote} placeholder={t("Filter, tripod, bulb time, manual aperture…")}
-        onsave={(text) => store.mutate(() => api.setNote([p.id], "settings", text))} />
-
-      <h3 title={t("Your own record, for you only. Never shown when sharing or publishing.")}>🔒 {t("Private notes")}</h3>
-      <NoteField id={p.id} value={p.privateNote} placeholder={t("Your own record, for you only. Never shown when sharing or publishing.")}
-        onsave={(text) => store.mutate(() => api.setNote([p.id], "private", text))} />
+      <PhotoForm photo={p} />
 
       <h3>{t("Tags")}</h3>
       <div class="chips">
@@ -150,12 +138,6 @@
         {/each}
       </div>
       <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags([p.id], names))} />
-
-      <h3>{t("Source")}</h3>
-      <SourceInput onset={(s) => store.mutate(() => api.setSource([p.id], s))} />
-
-      <h3>{t("Lens")}</h3>
-      <LensInput disabled={p.exifLens} onset={(lens) => store.mutate(() => api.setLens([p.id], lens))} />
 
       <h3>{t("Albums")}</h3>
       <div class="chips">
