@@ -30,6 +30,8 @@
 
             - photo already in library → added to album, no second copy
 
+            - option: subfolders → sections (2019 Japan/Kyoto)
+
       - skip rules
 
          - already in library (content hash)
@@ -125,6 +127,14 @@
             - album pickers grouped by topic
 
          - \*topic from import folders (my-fotos/Travel/2019 Kyoto)
+
+         - section (Kyoto, Nara…; one level, a photo in one per album)
+
+            - make: by hand / split by day / import subfolders
+
+            - album page: headings in your order, "No section" last
+
+            - move photos: selection bar or drag onto a heading
 
       - tag
 
