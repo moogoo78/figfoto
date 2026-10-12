@@ -114,6 +114,10 @@
 
       - album
 
+         - topic (Travel, Family…; one level, one per album)
+
+         - \*topic from import folders (my-fotos/Travel/2019 Kyoto)
+
       - tag
 
       - find / filter
