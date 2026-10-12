@@ -116,6 +116,14 @@
 
          - topic (Travel, Family…; one level, one per album)
 
+            - sidebar: collapsible groups
+
+            - file an album: drag onto a topic, or pick on the album page
+
+            - topic page: album cover tiles
+
+            - album pickers grouped by topic
+
          - \*topic from import folders (my-fotos/Travel/2019 Kyoto)
 
       - tag
