@@ -218,6 +218,10 @@ CREATE TABLE backup_copies (
 ) WITHOUT ROWID;
 CREATE INDEX idx_backup_copies_photo ON backup_copies(photo_id);
 "#,
+    // v16: backups to cloud storage through rclone; `path` is then `remote:folder`.
+    r#"
+ALTER TABLE backup_targets ADD COLUMN kind TEXT NOT NULL DEFAULT 'disk';
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

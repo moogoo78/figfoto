@@ -7,8 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       cmake libde265-dev \
       libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
       libayatana-appindicator3-dev librsvg2-dev \
-      fonts-noto-core fonts-noto-cjk adwaita-icon-theme \
+      fonts-noto-core fonts-noto-cjk adwaita-icon-theme unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# rclone for cloud backups (Debian's package is too old for Proton Drive)
+RUN arch="$(dpkg --print-architecture)" \
+ && curl -fsSL -o /tmp/rclone.zip "https://downloads.rclone.org/rclone-current-linux-${arch}.zip" \
+ && unzip -j -d /tmp/rclone /tmp/rclone.zip '*/rclone' \
+ && install -m 755 /tmp/rclone/rclone /usr/local/bin/rclone \
+ && rm -rf /tmp/rclone /tmp/rclone.zip
 
 # Node + pnpm (copied from the official node image)
 COPY --from=node /usr/local/bin/node /usr/local/bin/node

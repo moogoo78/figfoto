@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::backup::{self, BackupResult, BackupTarget, VerifyResult};
+use crate::cloud::{self, RcloneStatus};
 use crate::error::{AppError, Result};
 use crate::import::{self, ImportFailure, ImportProgress};
 use crate::queries::ImportRecord;
@@ -475,6 +476,34 @@ pub async fn add_backup_target(state: State<'_, AppState>, path: String) -> Resu
 #[tauri::command]
 pub async fn set_backup_target_path(state: State<'_, AppState>, id: i64, path: String) -> Result<()> {
     backup::set_target_path(&*state.lib()?, id, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn add_cloud_backup_target(state: State<'_, AppState>, path: String) -> Result<i64> {
+    let lib = state.lib()?;
+    tauri::async_runtime::spawn_blocking(move || backup::add_cloud_target(&lib, &path))
+        .await
+        .map_err(|e| AppError::msg(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn set_cloud_backup_target_path(state: State<'_, AppState>, id: i64, path: String) -> Result<()> {
+    let lib = state.lib()?;
+    tauri::async_runtime::spawn_blocking(move || backup::set_cloud_target_path(&lib, id, &path))
+        .await
+        .map_err(|e| AppError::msg(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn rclone_status(state: State<'_, AppState>) -> Result<RcloneStatus> {
+    let lib = state.lib()?;
+    tauri::async_runtime::spawn_blocking(move || cloud::status(&lib)).await.map_err(|e| AppError::msg(e.to_string()))
+}
+
+/// `None` goes back to finding rclone on PATH.
+#[tauri::command]
+pub async fn set_rclone_path(state: State<'_, AppState>, path: Option<String>) -> Result<()> {
+    cloud::set_path(&*state.lib()?, path.as_deref())
 }
 
 #[tauri::command]

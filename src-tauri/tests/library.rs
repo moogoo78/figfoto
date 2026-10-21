@@ -1150,3 +1150,78 @@ fn backup_refuses_other_libraries_and_missing_disks() {
     assert!(backup::list_targets(&lib).unwrap()[0].available);
     assert_eq!(backup::run(&lib, id, &AtomicBool::new(false), |_, _| {}).unwrap().copied, 3);
 }
+
+/// A cloud backup through rclone, to a `local`-type remote standing in for the cloud.
+/// Skipped when rclone isn't installed (it is in the dev container).
+#[test]
+fn cloud_backup_copies_through_rclone() {
+    use frutyfoto_lib::{backup, cloud};
+    let Env { _tmp, src, lib } = env();
+    if cloud::Rclone::find(&lib).is_err() {
+        eprintln!("rclone not installed; skipping");
+        return;
+    }
+    std::env::set_var("RCLONE_CONFIG_FAKECLOUD_TYPE", "local");
+    let ids = three_photos(&lib, &src);
+    let bucket = _tmp.path().join("bucket");
+    let no_cancel = AtomicBool::new(false);
+    let status = cloud::status(&lib);
+    assert!(status.remotes.iter().any(|r| r.name == "fakecloud" && r.kind == "local"), "{status:?}");
+
+    // Unknown remotes are refused; the folder is made on first use.
+    assert!(backup::add_cloud_target(&lib, "nosuchremote:x").is_err());
+    let picked = format!("fakecloud:{}", bucket.display());
+    let id = backup::add_cloud_target(&lib, &picked).unwrap();
+    let root = bucket.join(backup::BACKUP_DIR);
+    let t = &backup::list_targets(&lib).unwrap()[0];
+    assert_eq!((t.kind, t.available, t.backed_up, t.total), (backup::TargetKind::Cloud, true, 0, 3));
+    assert!(t.path.ends_with("/frutyfoto-backup"));
+    assert!(backup::add_cloud_target(&lib, &picked).is_err(), "same folder twice");
+    let other = Library::open(&_tmp.path().join("other"), true).unwrap();
+    assert!(backup::add_cloud_target(&other, &picked).is_err(), "another library's backup");
+
+    // A different file already at a photo's path is kept under another name.
+    write(&root.join("originals/2021/07/15/p1.jpg"), b"someone else's");
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.skipped, r.errors.len(), r.cancelled), (3, 0, 0, false), "{:?}", r.errors);
+    for i in 0..3 {
+        let rel = format!("originals/2021/07/15/p{i}.jpg");
+        assert_eq!(hash_file(&root.join(&rel)).unwrap(), hash_file(&lib.root.join(&rel)).unwrap());
+    }
+    let kept: Vec<_> = std::fs::read_dir(root.join("originals/2021/07/15")).unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("p1-replaced-"))
+        .collect();
+    assert_eq!(kept.len(), 1, "replaced file is kept");
+    assert_eq!(std::fs::read_dir(root.join("db")).unwrap().count(), 1);
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 0);
+
+    // Nothing new: nothing copied. Deleted photos stay on the backup.
+    assert_eq!(backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap().copied, 0);
+    queries::trash_photos(&lib, &[ids[0]]).unwrap();
+    empty_trash(&lib).unwrap();
+    assert!(root.join("originals/2021/07/15/p0.jpg").is_file());
+
+    // Verify finds a changed and a missing copy; the next run copies them again.
+    std::fs::write(root.join("originals/2021/07/15/p1.jpg"), b"bit rot").unwrap();
+    std::fs::remove_file(root.join("originals/2021/07/15/p2.jpg")).unwrap();
+    let v = backup::verify(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((v.checked, v.problems.len()), (2, 2), "{:?}", v.problems);
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.errors.len()), (2, 0), "{:?}", r.errors);
+    let v = backup::verify(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((v.checked, v.problems.len()), (2, 0), "{:?}", v.problems);
+
+    // A cancelled run copies nothing and saves no snapshot.
+    write(&src.join("new.jpg"), &with_exif(jpeg_bytes(&picture(2, 80, 80), 70), "2022:01:02 03:04:05", "Cam"));
+    import_all(&lib, &src);
+    let r = backup::run(&lib, id, &AtomicBool::new(true), |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.cancelled), (0, true));
+
+    // A gone folder, or rclone pointed elsewhere, is reported instead of backing up.
+    std::fs::rename(&root, bucket.join("moved")).unwrap();
+    assert!(backup::run(&lib, id, &no_cancel, |_, _| {}).is_err());
+    backup::set_cloud_target_path(&lib, id, &format!("fakecloud:{}", bucket.join("moved").display())).unwrap();
+    assert_eq!(backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap().copied, 1);
+    assert!(cloud::set_path(&lib, Some("/nonexistent/rclone")).is_err());
+}

@@ -211,15 +211,32 @@ export interface RunResult {
 export interface BackupTarget {
   id: number;
   name: string;
+  /** `cloud`: an rclone remote; `path` is then `remote:folder/frutyfoto-backup`. */
+  kind: "disk" | "cloud";
   /** The `frutyfoto-backup` folder. */
   path: string;
-  /** The disk is connected and the folder belongs to this library. */
+  /** The disk is connected and the folder belongs to this library; for the cloud, rclone
+   *  knows the remote. */
   available: boolean;
   lastRunAt: string | null;
   lastVerifiedAt: string | null;
   backedUp: number;
   total: number;
   bytesToCopy: number;
+}
+
+export interface RcloneRemote {
+  name: string;
+  /** rclone backend: `drive`, `b2`, `protondrive`… */
+  kind: string;
+}
+
+export interface RcloneStatus {
+  path: string | null;
+  version: string | null;
+  remotes: RcloneRemote[];
+  /** Why rclone can't be used, e.g. not installed. */
+  error: string | null;
 }
 
 export interface BackupResult {

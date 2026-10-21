@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Section, Sort, Tag, Topic, VerifyResult,
+  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, Sort, Tag, Topic, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -95,6 +95,12 @@ export const api = {
   /** `path` is the folder picked (a `frutyfoto-backup` folder is made inside it). */
   addBackupTarget: (path: string) => invoke<number>("add_backup_target", { path }),
   setBackupTargetPath: (id: number, path: string) => invoke<void>("set_backup_target_path", { id, path }),
+  /** `path` is `remote:folder` on an rclone remote (a `frutyfoto-backup` folder is made in it). */
+  addCloudBackupTarget: (path: string) => invoke<number>("add_cloud_backup_target", { path }),
+  setCloudBackupTargetPath: (id: number, path: string) => invoke<void>("set_cloud_backup_target_path", { id, path }),
+  rcloneStatus: () => invoke<RcloneStatus>("rclone_status"),
+  /** `null` goes back to finding rclone on PATH. */
+  setRclonePath: (path: string | null) => invoke<void>("set_rclone_path", { path }),
   renameBackupTarget: (id: number, name: string) => invoke<void>("rename_backup_target", { id, name }),
   /** Forgets the backup; its files stay on the disk. */
   removeBackupTarget: (id: number) => invoke<void>("remove_backup_target", { id }),

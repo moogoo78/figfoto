@@ -182,7 +182,21 @@
 
          - sidebar: count of photos not backed up
 
-      - \*backblaze b2
+      - cloud (through rclone)
+
+         - Google Drive, Backblaze B2, Proton Drive… (any rclone remote)
+
+         - rclone installed by the user (brew / winget / install script); "Locate rclone…" if not on PATH
+
+         - remotes set up with `rclone config`; Backup view picks remote + folder
+
+         - same layout and marker as a disk; DB snapshot uploaded each run
+
+         - only adds: a different file at a photo's path is kept as <name>-replaced-<time>
+
+         - verify: rclone check by the cloud's hash (SHA-1 / MD5)
+
+         - \*bundle rclone with the installers (Tauri sidecar)
 
       - \*offload originals (save local disk)
 

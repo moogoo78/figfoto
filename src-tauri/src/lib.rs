@@ -1,4 +1,5 @@
 pub mod backup;
+pub mod cloud;
 pub mod commands;
 pub mod db;
 pub mod dupes;
@@ -81,7 +82,11 @@ pub fn run() {
             list_settings_notes,
             list_backup_targets,
             add_backup_target,
+            add_cloud_backup_target,
             set_backup_target_path,
+            set_cloud_backup_target_path,
+            rclone_status,
+            set_rclone_path,
             rename_backup_target,
             remove_backup_target,
             run_backup,

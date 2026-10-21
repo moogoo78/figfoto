@@ -56,7 +56,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
                  ▼
    OUTPUT ┌───────────────────────────────────────────────────┐
           │ • copy to target folder / export album            │
-          │ • BACKUP to 2nd disk: copy new, check hash, verify│
+          │ • BACKUP to disk / cloud: copy new, check, verify │
           │     └▶ *offload originals (keep thumbnail/screen) │
           │ • *publish album online ⇄ sync back edits         │
           └───────────────────────────────────────────────────┘
@@ -122,6 +122,22 @@ delete from the library stay on the backup. **Verify** reads every copy back; mi
 ones are copied again on the next run. You can keep several disks, each with its own record. If a
 disk shows up at another path, use **Change folder…**; another library's backup folder is refused.
 The sidebar shows how many photos are not backed up yet.
+
+**Cloud backups** (Google Drive, Backblaze B2, Proton Drive, or anything else rclone supports) go
+through [rclone](https://rclone.org), which you install yourself:
+
+```sh
+brew install rclone                         # macOS
+winget install Rclone.Rclone                # Windows
+curl https://rclone.org/install.sh | sudo bash   # Linux (distro packages may be too old for Proton)
+rclone config                               # add a remote, e.g. "gdrive" (Google Drive) or "b2"
+```
+
+Then click **Add cloud backup…**, pick the remote and a folder (for B2, the bucket name). The cloud
+gets the same `frutyfoto-backup/` layout as a disk. rclone checks each upload's hash; **Verify**
+compares every copy with the library using the cloud's own hash (SHA-1 or MD5). If a different
+file is already at a photo's path, it's kept, renamed `<name>-replaced-<time>.<ext>`. If rclone
+isn't on PATH (apps started from the macOS Dock don't get the shell's PATH), use **Locate rclone…**.
 
 ## Development (Docker)
 
