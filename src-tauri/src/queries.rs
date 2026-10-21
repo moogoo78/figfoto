@@ -503,7 +503,13 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
                  ORDER BY ap.position, p.taken_at LIMIT 1)),
             a.topic_id,
             (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id)
-         FROM albums a ORDER BY a.name COLLATE NOCASE",
+         FROM albums a
+         -- Newest first, by the latest photo taken (an empty album by when it was made).
+         ORDER BY COALESCE(
+             (SELECT MAX(p.taken_at) FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
+                WHERE ap.album_id = a.id AND p.trashed_at IS NULL),
+             a.created_at) DESC,
+           a.name COLLATE NOCASE",
     )?;
     let rows = stmt.query_map([], |r| {
         let cover: Option<String> = r.get(4)?;

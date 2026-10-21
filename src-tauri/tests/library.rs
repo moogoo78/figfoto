@@ -932,9 +932,10 @@ fn subfolders_can_become_sections() {
     assert_eq!((p.added, p.albums), (5, 2));
     assert!(queries::list_imports(&lib).unwrap()[0].folder_sections);
 
+    // Newest album first: my-fotos holds the 5th, Japan's latest is the 4th.
     let albums: Vec<(String, i64)> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.count)).collect();
-    assert_eq!(albums, vec![("Japan".into(), 4), ("my-fotos".into(), 1)]);
-    let japan = queries::list_albums(&lib).unwrap()[0].id;
+    assert_eq!(albums, vec![("my-fotos".into(), 1), ("Japan".into(), 4)]);
+    let japan = queries::list_albums(&lib).unwrap().into_iter().find(|a| a.name == "Japan").unwrap().id;
     let sections = || -> Vec<(String, i64)> {
         queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.count)).collect()
     };

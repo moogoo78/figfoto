@@ -114,13 +114,14 @@ class Store {
   }
 
   setView(view: View) {
+    const fromAlbum = this.view.kind === "album";
     this.view = view;
     this.selection.clear();
-    // An album split into sections opens by section; "by section" means nothing elsewhere.
+    // Albums read oldest first (by section when split into sections); everything else
+    // goes back to newest first on the way out, and "by section" means nothing elsewhere.
     if (view.kind === "album") {
-      if (this.albums.find((a) => a.id === view.id)?.sections) this.sort = "section";
-      else if (this.sort === "section") this.sort = "takenDesc";
-    } else if (this.sort === "section") {
+      this.sort = this.albums.find((a) => a.id === view.id)?.sections ? "section" : "takenAsc";
+    } else if (fromAlbum || this.sort === "section") {
       this.sort = "takenDesc";
     }
     this.sections = [];
