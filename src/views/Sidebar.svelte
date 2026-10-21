@@ -161,7 +161,7 @@
   <div class="brand">
     <Wordmark size={20} />
   </div>
-  <button class="primary import" onclick={() => store.openImport()}>＋ {t("Import photos")}</button>
+  <button class="primary import" onclick={() => store.openImport()}>＋ {t("Add photos")}</button>
 
   <div class="section">
     <button class="item" class:active={is({ kind: "library" })} onclick={() => store.setView({ kind: "library" })}>
@@ -172,7 +172,7 @@
     </button>
     <button class="item" class:active={store.view.kind === "imports" || store.view.kind === "import"}
       onclick={() => store.setView({ kind: "imports" })}>
-      <span>{t("Imports")}</span><small>{store.imports.length || ""}</small>
+      <span>{t("Add history")}</span><small>{store.imports.length || ""}</small>
     </button>
     <button class="item" class:active={store.view.kind === "marks" || store.view.kind === "mark"}
       onclick={() => store.setView({ kind: "marks" })}>

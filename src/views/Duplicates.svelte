@@ -58,7 +58,7 @@
     {#if scanning && !groups}
       <p class="empty">{t("Scanning…")}</p>
     {:else if groups && groups.length === 0}
-      <p class="empty">{t("No similar photos found. Exact duplicates are already skipped during import.")}</p>
+      <p class="empty">{t("No similar photos found. Exact duplicates are already skipped when adding photos.")}</p>
     {:else if groups}
       <p class="hint">{t("{n} group(s). Pick the photo to keep in each group; the others go to trash.", { n: groups.length })}</p>
       {#each groups as group, i (group.map((p) => p.id).join())}

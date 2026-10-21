@@ -2,7 +2,7 @@
 
 - input
 
-   - import (folder)
+   - add photos (folder)
 
       - from
 
@@ -12,13 +12,13 @@
 
          - phone (USB / synced folder)
 
-         - \*cloud drive (via rclone or sync client, then import the folder)
+         - \*cloud drive (via rclone or sync client, then add photos from the folder)
 
             - google drive
 
             - proton drive
 
-      - import type
+      - folder type
 
          - camera / SD card (date only)
 
@@ -40,11 +40,11 @@
 
             - "include previously deleted photos" checkbox
 
-         - fast re-import: known path + size + mtime → no re-read
+         - fast re-add: known path + size + mtime → no re-read
 
-      - import history
+      - add history
 
-         - import again (keeps import type)
+         - add again (keeps folder type)
 
    - quick add
 
@@ -102,7 +102,7 @@
 
    - organize (user view)
 
-      - all fotos
+      - all photos
 
          - group by date
 
@@ -110,7 +110,7 @@
 
             - newest / oldest
 
-            - recently imported
+            - recently added
 
             - highest rated
 
@@ -126,11 +126,11 @@
 
             - album pickers grouped by topic
 
-         - \*topic from import folders (my-fotos/Travel/2019 Kyoto)
+         - \*topic from added folders (my-fotos/Travel/2019 Kyoto)
 
          - section (Kyoto, Nara…; one level, a photo in one per album)
 
-            - make: by hand / split by day / import subfolders
+            - make: by hand / split by day / added subfolders
 
             - album page: headings in your order, "No section" last
 
@@ -208,7 +208,7 @@
 
          - replay online edits on the library
 
-         - Inbox photos imported like any import (hash dedupe)
+         - Inbox photos added like any batch (hash dedupe)
 
          - same field changed on both sides: latest edit wins
 

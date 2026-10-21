@@ -32,7 +32,7 @@
   const pct = $derived(p && p.total ? Math.round((p.done / p.total) * 100) : 0);
 
   async function pick() {
-    const dir = await open({ directory: true, title: t("Choose a folder to import") });
+    const dir = await open({ directory: true, title: t("Choose a folder to add photos from") });
     if (typeof dir === "string") source = dir;
   }
 
@@ -58,11 +58,11 @@
 
 {#if store.importOpen}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label={t("Import photos")}>
-      <h2>{t("Import photos")}</h2>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label={t("Add photos")}>
+      <h2>{t("Add photos")}</h2>
 
       {#if !started}
-        <div class="kind" role="radiogroup" aria-label={t("Import type")}>
+        <div class="kind" role="radiogroup" aria-label={t("Folder type")}>
           <label class:on={!folderAlbums}>
             <input type="radio" name="kind" value={false} bind:group={folderAlbums} />
             <strong>{t("Camera / SD card")}</strong>
@@ -104,7 +104,7 @@
         </label>
         <div class="buttons">
           <button onclick={close}>{t("Cancel")}</button>
-          <button class="primary" disabled={!source} onclick={start}>{t("Import")}</button>
+          <button class="primary" disabled={!source} onclick={start}>{t("Add photos")}</button>
         </div>
       {:else}
         <div class="bar"><div style:width="{pct}%"></div></div>
@@ -123,11 +123,11 @@
         {#if running}
           <p class="current" title={p?.current}>{p?.current || t("Scanning folder…")}</p>
         {:else if p}
-          <p><strong>{p.cancelled ? t("Import cancelled.") : t("Import finished.")}</strong></p>
+          <p><strong>{p.cancelled ? t("Stopped adding photos.") : t("Done adding photos.")}</strong></p>
           {#if p.errors.length}
             <details open={p.errors.length < 5}>
               <summary>
-                {t("{n} error(s)", { n: p.failed })}{#if p.errors.length < p.failed} — {t("showing the last {n}; see Import history for all", { n: p.errors.length })}{/if}
+                {t("{n} error(s)", { n: p.failed })}{#if p.errors.length < p.failed} — {t("showing the last {n}; see Add history for all", { n: p.errors.length })}{/if}
               </summary>
               <ul class="errors">
                 {#each p.errors as err}<li><code>{err.path}</code><br />{err.error}</li>{/each}
@@ -139,7 +139,7 @@
           {#if running}
             <button onclick={() => api.cancelImport()}>{t("Stop")}</button>
           {:else}
-            <button onclick={() => { started = false; source = ""; origin = ""; includeDeleted = false; }}>{t("Import more")}</button>
+            <button onclick={() => { started = false; source = ""; origin = ""; includeDeleted = false; }}>{t("Add more")}</button>
             <button class="primary" onclick={close}>{t("Done")}</button>
           {/if}
         </div>

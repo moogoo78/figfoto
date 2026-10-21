@@ -95,7 +95,7 @@ pub struct LibraryInfo {
 #[tauri::command]
 pub async fn open_library(app: AppHandle, state: State<'_, AppState>, path: String, create: bool) -> Result<LibraryInfo> {
     if state.importing.load(Ordering::SeqCst) {
-        return Err(AppError::msg("an import is running"));
+        return Err(AppError::msg("photos are being added"));
     }
     activate(&app, Path::new(&path), create)
 }
@@ -122,7 +122,7 @@ pub async fn start_import(
 ) -> Result<()> {
     let lib = state.lib()?;
     if state.importing.swap(true, Ordering::SeqCst) {
-        return Err(AppError::msg("an import is already running"));
+        return Err(AppError::msg("photos are already being added"));
     }
     state.import_cancel.store(false, Ordering::SeqCst);
     let (cancel, importing) = (state.import_cancel.clone(), state.importing.clone());
@@ -142,7 +142,7 @@ pub async fn start_import(
         let opts = import::ImportOptions { source: source.as_deref(), folder_albums, folder_sections, include_deleted };
         let run = || import::run(&lib, Path::new(&src), &opts, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
-            .unwrap_or_else(|_| Err(AppError::msg("the import crashed")));
+            .unwrap_or_else(|_| Err(AppError::msg("adding photos crashed")));
         if let Err(e) = result {
             emit(&ImportProgress {
                 finished: true,

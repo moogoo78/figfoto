@@ -125,7 +125,7 @@
           {originLabel(p) || t("Unknown")}
           {#if p.source}<button class="link" onclick={() => store.mutate(() => api.setSource([p.id], ""))}>{t("reset")}</button>{/if}
         </dd>
-        <dt>{t("Imported")}</dt><dd>{fmtDateTime(p.importedAt)}</dd>
+        <dt>{t("Added")}</dt><dd>{fmtDateTime(p.importedAt)}</dd>
         {#if p.sourcePath}<dt>{t("Original path")}</dt><dd class="path">{p.sourcePath}</dd>{/if}
         <dt>{t("File")}</dt><dd class="path">{p.relPath}</dd>
       </dl>

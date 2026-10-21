@@ -39,7 +39,7 @@
 
 <section class="history">
   <header>
-    <h1>{t("Imports")}</h1>
+    <h1>{t("Add history")}</h1>
     <span class="count">{t(store.imports.length === 1 ? "{n} import" : "{n} imports", { n: store.imports.length })}</span>
   </header>
 
@@ -47,7 +47,7 @@
     {#each store.imports as imp (imp.id)}
       {@const st = status(imp)}
       <article class="card">
-        <button class="cover" disabled={!imp.photoCount} title={t("View photos from this import")}
+        <button class="cover" disabled={!imp.photoCount} title={t("View photos from this batch")}
           onclick={() => store.setView({ kind: "import", id: imp.id })}>
           {#if imp.cover}<img src={src(imp.cover)} alt="" />{:else}<span class="none">{t("No photos")}</span>{/if}
         </button>
@@ -84,15 +84,15 @@
 
         <div class="actions">
           <button disabled={!imp.photoCount} onclick={() => store.setView({ kind: "import", id: imp.id })}>{t("View photos")}</button>
-          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.folderSections)} title={t("Import this folder again; only new files are copied")}>
-            {t("Import again")}
+          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.folderSections)} title={t("Add from this folder again; only new files are copied")}>
+            {t("Add again")}
           </button>
         </div>
       </article>
     {:else}
       <div class="empty">
-        <p>{t("No imports yet.")}</p>
-        <button class="primary" onclick={() => store.openImport()}>{t("Import photos")}</button>
+        <p>{t("No photos added yet.")}</p>
+        <button class="primary" onclick={() => store.openImport()}>{t("Add photos")}</button>
       </div>
     {/each}
   </div>

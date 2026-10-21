@@ -21,7 +21,7 @@
       <button class="primary" onclick={() => choose(true)}>{t("Create new library")}</button>
       <button onclick={() => choose(false)}>{t("Open existing library")}</button>
     </div>
-    <p class="small">{t("A library is a folder. Imported photos are copied into")} <code>originals/</code> {t("inside it.")}</p>
+    <p class="small">{t("A library is a folder. Photos you add are copied into")} <code>originals/</code> {t("inside it.")}</p>
     <select class="lang" value={i18n.locale} title="Language / 語言"
       onchange={(e) => i18n.set(e.currentTarget.value as Locale)}>
       {#each LOCALES as l (l.value)}<option value={l.value}>{l.label}</option>{/each}

@@ -107,7 +107,7 @@ pub fn run(
     // Compare real paths so symlinks, `..` or a second mount point can't sneak the library in.
     let (real_src, real_root) = (std::fs::canonicalize(src)?, std::fs::canonicalize(&lib.root)?);
     if real_src.starts_with(&real_root) || real_root.starts_with(&real_src) {
-        return Err(AppError::msg("cannot import from inside the library (or a parent of it)"));
+        return Err(AppError::msg("cannot add photos from inside the library (or a parent of it)"));
     }
 
     let import_id = {
@@ -177,7 +177,7 @@ pub fn run(
             return;
         }
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, src, path, &claimed)))
-            .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while importing: {}", panic_message(&panic)))));
+            .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while adding photos: {}", panic_message(&panic)))));
         if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
             album_hashes.lock().unwrap().entry(album.clone()).or_default().push(hash.clone());
         }
@@ -197,7 +197,7 @@ pub fn run(
         }
         if let Some(reason) = fatal {
             if !stop.swap(true, Ordering::Relaxed) {
-                p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("import stopped: {reason}") });
+                p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding photos stopped: {reason}") });
             }
         }
         if due() {

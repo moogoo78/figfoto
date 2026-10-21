@@ -1,6 +1,6 @@
 # frutyfoto
 
-A desktop photo organizer (Tauri 2 + Svelte 5). Import copies photos into a managed library
+A desktop photo organizer (Tauri 2 + Svelte 5). Adding photos copies them into a managed library
 sorted by date, then lets you browse, rate, tag, group into albums and weed out duplicates.
 
 ## Use flow
@@ -15,7 +15,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
                                       │
    SOURCES                            ▼
  ┌──────────────┐        ┌────────────────────────────┐
- │ hard drive   │        │          IMPORT            │
+ │ hard drive   │        │         ADD PHOTOS         │
  │ SD card      │──────▶ │ • camera/SD  → by date     │
  │ phone folder │        │ • organized folders        │
  │ LINE / FB    │        │     → albums (+ sections)  │
@@ -74,7 +74,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
   .frutyfoto/trash/                         # trashed photos (restorable until emptied)
 ```
 
-Import files photos by date under `originals/`. Adding a photo to an album **moves the file** into
+Added photos are filed by date under `originals/`. Adding a photo to an album **moves the file** into
 `albums/<album>/`; renaming the album renames the folder. A photo in several albums lives in the
 first one's folder; when it leaves all albums it goes back to `originals/YYYY/MM/DD/`. To make an
 album from a day, hover the day header in the grid and click **＋ New album** (or select photos and
@@ -95,10 +95,10 @@ Processed photos lose their mark.
 
 Each photo shows whether it came from a **phone** or a **camera** (guessed from EXIF make/model) in
 album views and the viewer. You can label a source yourself (e.g. LINE, Facebook) per photo, for the
-selection, or for a whole import in the import dialog; filter by it in **Filter → Source**.
+selection, or for a whole batch in the **Add photos** dialog; filter by it in **Filter → Source**.
 
 The date comes from EXIF `DateTimeOriginal` → `DateTimeDigitized` → `DateTime` → file mtime.
-Exact duplicates (same BLAKE3 hash) are skipped at import; near-duplicates are found with a
+Exact duplicates (same BLAKE3 hash) are skipped when adding photos; near-duplicates are found with a
 64-bit perceptual hash in the **Duplicates** view.
 
 Supported formats: JPEG, PNG, WebP, TIFF, GIF, HEIC/HEIF. HEIC is decoded with libheif + libde265

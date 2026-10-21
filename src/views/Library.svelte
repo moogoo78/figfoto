@@ -63,7 +63,7 @@
       case "trash": return t("Trash");
       case "album": return store.albums.find((a) => a.id === v.id)?.name ?? t("Album");
       case "tag": return `#${store.tags.find((tag) => tag.id === v.id)?.name ?? ""}`;
-      case "import": return t("Import: {name}", { name: basename(currentImport?.sourceDir ?? "") });
+      case "import": return t("Added from {name}", { name: basename(currentImport?.sourceDir ?? "") });
       case "mark": return store.markName(v.mark);
       default: return t("All photos");
     }
@@ -100,7 +100,7 @@
   }
 
   async function emptyTrash() {
-    const msg = t("Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them. Importing the same photos again will skip them.", { n: store.counts.trash });
+    const msg = t("Remove {n} photo(s) from the library? The files are moved to the system Trash, where you can still recover them. Adding the same photos again will skip them.", { n: store.counts.trash });
     if (!(await ask(msg, { title: t("Empty trash"), kind: "warning" }))) return;
     store.mutate(() => api.emptyTrash(), t("Moved to the system Trash"));
   }
@@ -211,7 +211,7 @@
 <section class="library">
   <header>
     {#if currentImport}
-      <button class="link" onclick={() => store.setView({ kind: "imports" })} title={t("Back to import history")}>‹ {t("Imports")}</button>
+      <button class="link" onclick={() => store.setView({ kind: "imports" })} title={t("Back to add history")}>‹ {t("Add history")}</button>
     {/if}
     {#if markView}
       <button class="link" onclick={() => store.setView({ kind: "marks" })} title={t("Back to marks")}>‹ {t("Marks")}</button>
@@ -219,7 +219,7 @@
     {/if}
     <h1 title={currentImport?.sourceDir}>{title}</h1>
     <span class="count">
-      {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("imported {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
+      {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("added {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
     </span>
     <span class="grow"></span>
     {#if currentAlbum}
@@ -278,7 +278,7 @@
     <select bind:value={store.sort} title={t("Sort")}>
       <option value="takenDesc">{t("Newest first")}</option>
       <option value="takenAsc">{t("Oldest first")}</option>
-      <option value="importedDesc">{t("Recently imported")}</option>
+      <option value="importedDesc">{t("Recently added")}</option>
       <option value="ratingDesc">{t("Highest rated")}</option>
       {#if albumId != null}<option value="section">{t("By section")}</option>{/if}
     </select>
@@ -371,7 +371,7 @@
           <button onclick={() => store.clearQuery()}>{t("Clear filters")}</button>
         {:else if store.view.kind === "library"}
           <p>{t("Your library is empty.")}</p>
-          <button class="primary" onclick={() => store.openImport()}>{t("Import photos")}</button>
+          <button class="primary" onclick={() => store.openImport()}>{t("Add photos")}</button>
         {:else if inTrash}
           <p>{t("Trash is empty.")}</p>
         {:else}
