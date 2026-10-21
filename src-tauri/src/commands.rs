@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::backup::{self, BackupResult, BackupTarget, VerifyResult};
 use crate::error::{AppError, Result};
 use crate::import::{self, ImportFailure, ImportProgress};
 use crate::queries::ImportRecord;
@@ -14,12 +15,15 @@ use crate::queries::{self, Album, Bucket, Counts, Filter, Photo, PhotoDetail, So
 
 pub const PROGRESS_EVENT: &str = "import://progress";
 pub const MARK_PROGRESS_EVENT: &str = "marks://progress";
+pub const BACKUP_PROGRESS_EVENT: &str = "backup://progress";
 
 #[derive(Default)]
 pub struct AppState {
     library: Mutex<Option<Arc<Library>>>,
     import_cancel: Arc<AtomicBool>,
     importing: Arc<AtomicBool>,
+    backup_cancel: Arc<AtomicBool>,
+    backing_up: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -96,6 +100,9 @@ pub struct LibraryInfo {
 pub async fn open_library(app: AppHandle, state: State<'_, AppState>, path: String, create: bool) -> Result<LibraryInfo> {
     if state.importing.load(Ordering::SeqCst) {
         return Err(AppError::msg("photos are being added"));
+    }
+    if state.backing_up.load(Ordering::SeqCst) {
+        return Err(AppError::msg("a backup is running"));
     }
     activate(&app, Path::new(&path), create)
 }
@@ -451,4 +458,78 @@ pub async fn set_note(state: State<'_, AppState>, ids: Vec<i64>, kind: String, t
 #[tauri::command]
 pub async fn set_source(state: State<'_, AppState>, ids: Vec<i64>, source: String) -> Result<()> {
     marks::set_source(&*state.lib()?, &ids, &source)
+}
+
+// ---- backup ----
+
+#[tauri::command]
+pub async fn list_backup_targets(state: State<'_, AppState>) -> Result<Vec<BackupTarget>> {
+    backup::list_targets(&*state.lib()?)
+}
+
+#[tauri::command]
+pub async fn add_backup_target(state: State<'_, AppState>, path: String) -> Result<i64> {
+    backup::add_target(&*state.lib()?, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn set_backup_target_path(state: State<'_, AppState>, id: i64, path: String) -> Result<()> {
+    backup::set_target_path(&*state.lib()?, id, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn rename_backup_target(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
+    backup::rename_target(&*state.lib()?, id, &name)
+}
+
+#[tauri::command]
+pub async fn remove_backup_target(state: State<'_, AppState>, id: i64) -> Result<()> {
+    backup::remove_target(&*state.lib()?, id)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupProgress {
+    target_id: i64,
+    done: usize,
+    total: usize,
+}
+
+/// Runs one backup task at a time on a blocking thread, sending progress events.
+async fn backup_task<T: Send + 'static>(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+    task: fn(&Library, i64, &AtomicBool, &dyn Fn(usize, usize)) -> Result<T>,
+) -> Result<T> {
+    let lib = state.lib()?;
+    if state.backing_up.swap(true, Ordering::SeqCst) {
+        return Err(AppError::msg("a backup is already running"));
+    }
+    state.backup_cancel.store(false, Ordering::SeqCst);
+    let (cancel, running) = (state.backup_cancel.clone(), state.backing_up.clone());
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        task(&lib, id, &cancel, &|done, total| {
+            let _ = app.emit(BACKUP_PROGRESS_EVENT, BackupProgress { target_id: id, done, total });
+        })
+    })
+    .await;
+    running.store(false, Ordering::SeqCst);
+    result.map_err(|e| AppError::msg(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn run_backup(app: AppHandle, state: State<'_, AppState>, id: i64) -> Result<BackupResult> {
+    backup_task(app, state, id, |lib, id, cancel, progress| backup::run(lib, id, cancel, progress)).await
+}
+
+#[tauri::command]
+pub async fn verify_backup(app: AppHandle, state: State<'_, AppState>, id: i64) -> Result<VerifyResult> {
+    backup_task(app, state, id, |lib, id, cancel, progress| backup::verify(lib, id, cancel, progress)).await
+}
+
+#[tauri::command]
+pub async fn cancel_backup(state: State<'_, AppState>) -> Result<()> {
+    state.backup_cancel.store(true, Ordering::SeqCst);
+    Ok(())
 }

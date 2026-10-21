@@ -105,6 +105,8 @@ export interface Counts {
   favorites: number;
   trash: number;
   marked: number;
+  /** Live photos on no backup disk; 0 while no backup is set up. */
+  unbacked: number;
 }
 
 export interface Filter {
@@ -180,6 +182,7 @@ export type View =
   | { kind: "marks" }
   | { kind: "mark"; mark: Mark }
   | { kind: "lenses" }
+  | { kind: "backup" }
   | { kind: "duplicates" }
   | { kind: "trash" };
 
@@ -203,4 +206,33 @@ export interface RunResult {
   done: number;
   skipped: number;
   errors: string[];
+}
+
+export interface BackupTarget {
+  id: number;
+  name: string;
+  /** The `frutyfoto-backup` folder. */
+  path: string;
+  /** The disk is connected and the folder belongs to this library. */
+  available: boolean;
+  lastRunAt: string | null;
+  lastVerifiedAt: string | null;
+  backedUp: number;
+  total: number;
+  bytesToCopy: number;
+}
+
+export interface BackupResult {
+  copied: number;
+  /** Already on the disk, recorded without copying. */
+  skipped: number;
+  errors: string[];
+  cancelled: boolean;
+}
+
+export interface VerifyResult {
+  checked: number;
+  /** Missing or changed copies; the next backup copies them again. */
+  problems: string[];
+  cancelled: boolean;
 }

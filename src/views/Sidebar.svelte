@@ -181,6 +181,10 @@
     <button class="item" class:active={is({ kind: "lenses" })} onclick={() => store.setView({ kind: "lenses" })}>
       <span>{t("Lenses")}</span><small>{store.lenses.length || ""}</small>
     </button>
+    <button class="item" class:active={is({ kind: "backup" })} onclick={() => store.setView({ kind: "backup" })}
+      title={store.counts.unbacked ? t("{n} photo(s) not backed up", { n: store.counts.unbacked }) : undefined}>
+      <span>{t("Backup")}</span><small class:warn={store.counts.unbacked > 0}>{store.counts.unbacked || ""}</small>
+    </button>
     <button class="item" class:active={is({ kind: "duplicates" })} onclick={() => store.setView({ kind: "duplicates" })}>
       <span>{t("Duplicates")}</span>
     </button>
@@ -334,6 +338,7 @@
   .item.active { background: var(--accent-bg); color: var(--accent-fg); }
   .item.drop { outline: 2px dashed var(--accent); }
   small { color: var(--muted); font-size: 11px; }
+  small.warn { color: var(--danger); }
   .album img, .nocover { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; background: var(--cell); flex-shrink: 0; }
   .icon { background: none; border: none; color: var(--muted); padding: 0 4px; font-size: 14px; cursor: pointer; }
   .del { visibility: hidden; }

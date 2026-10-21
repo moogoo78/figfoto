@@ -294,4 +294,33 @@ export const zhTW: Record<string, string> = {
   "Each folder right inside the chosen folder becomes an album named after it, and the folders inside those become sections of that album (e.g. 2019 Japan / Kyoto). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.":
     "所選資料夾內的每個資料夾都會成為同名相簿，其中的子資料夾則成為該相簿的分段（例如 2019 Japan / Kyoto）。直接放在所選資料夾裡的照片會放進以它命名的相簿。已在圖庫中的照片會直接加入，不會再複製一份。",
   "Folders → albums + sections": "資料夾 → 相簿 + 分段",
+
+  // Backup
+  Backup: "備份",
+  "{n} photo(s) not backed up": "{n} 張照片尚未備份",
+  "Add backup disk…": "新增備份磁碟…",
+  "Back up to…": "備份到…",
+  "Backup disk added": "已新增備份磁碟",
+  "Where is this backup now?": "這個備份現在在哪裡？",
+  "Backup removed; its files stay on the disk": "已移除備份，磁碟上的檔案會保留",
+  "Copies the library's photos to another disk, in the same date folders, plus a copy of the library database. Each run copies only what's new, and every copy is checked. Photos you delete from the library stay on the backup.":
+    "將圖庫的照片依相同的日期資料夾複製到另一顆磁碟，並附上圖庫資料庫的副本。每次只複製新的照片，且每個副本都會檢查。從圖庫刪除的照片仍會保留在備份中。",
+  "No backup disk yet. Plug one in and click “Add backup disk…”.": "還沒有備份磁碟。接上磁碟後按「新增備份磁碟…」。",
+  Rename: "重新命名",
+  "not connected": "未連接",
+  "{done} of {total} photo(s) backed up · {size} to copy": "已備份 {done} / {total} 張照片 · 還有 {size} 要複製",
+  "All {n} photo(s) backed up": "{n} 張照片皆已備份",
+  "Last backup": "上次備份",
+  "Last check": "上次檢查",
+  never: "從未",
+  "Backing up…": "備份中…",
+  "Checking…": "檢查中…",
+  "Back up now": "立即備份",
+  Verify: "檢查",
+  "Read every copy back and check it": "讀回每個副本並檢查",
+  "Forget this backup; its files stay on the disk": "移除這個備份紀錄，磁碟上的檔案會保留",
+  "Backup: {n} photo(s) copied": "備份：已複製 {n} 張照片",
+  cancelled: "已取消",
+  "Checked {n} photo(s)": "已檢查 {n} 張照片",
+  "{n} missing or changed, will be copied again": "{n} 張遺失或已變更，下次會重新複製",
 };

@@ -158,9 +158,27 @@
 
       - export album
 
-   - \*backup
+   - backup
 
       - second disk
+
+         - Backup view: add a disk (folder picker), "Back up now"
+
+         - only copies what's new; every copy checked by hash
+
+         - readable layout: frutyfoto-backup/originals/YYYY/MM/DD
+
+         - library DB snapshot each run (newest 5 kept)
+
+         - only adds: photos deleted from the library stay on the backup
+
+         - several disks, each with its own record
+
+         - disk mounted elsewhere → "Change folder…"; another library's backup refused
+
+         - verify: read every copy back; missing / changed → copied again
+
+         - sidebar: count of photos not backed up
 
       - \*backblaze b2
 

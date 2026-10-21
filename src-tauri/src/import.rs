@@ -525,9 +525,26 @@ pub fn copy_verified(src: &Path, mut dest: File, expected_hash: &str) -> Result<
     }
     dest.sync_all()?;
     if hasher.finalize().to_hex().as_str() != expected_hash {
-        return Err(AppError::msg("source file changed during import"));
+        return Err(AppError::msg("source file changed while copying"));
     }
     Ok(())
+}
+
+/// Copies `src` into `dir` as `file_name` (or a free `-N` variant), verified against `hash`.
+/// Returns the destination and whether it was copied: false if an identical file was
+/// already there under that name.
+pub fn copy_into(src: &Path, hash: &str, dir: &Path, file_name: &str) -> Result<(PathBuf, bool)> {
+    let existing = dir.join(file_name);
+    if existing.is_file() && hash_file(&existing)? == hash {
+        return Ok((existing, false));
+    }
+    std::fs::create_dir_all(dir)?;
+    let (dest, file) = reserve_dest(dir, file_name)?;
+    if let Err(e) = copy_verified(src, file, hash) {
+        let _ = std::fs::remove_file(&dest);
+        return Err(e);
+    }
+    Ok((dest, true))
 }
 
 /// Creates any missing previews, e.g. for photos imported before their format got one.

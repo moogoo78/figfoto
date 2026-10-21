@@ -912,6 +912,8 @@ pub struct Counts {
     pub favorites: i64,
     pub trash: i64,
     pub marked: i64,
+    /// Live photos on no backup disk; 0 while no backup is set up.
+    pub unbacked: i64,
 }
 
 pub fn counts(lib: &Library) -> Result<Counts> {
@@ -920,10 +922,12 @@ pub fn counts(lib: &Library) -> Result<Counts> {
             COALESCE(SUM(trashed_at IS NULL), 0),
             COALESCE(SUM(trashed_at IS NULL AND favorite = 1), 0),
             COALESCE(SUM(trashed_at IS NOT NULL), 0),
-            COALESCE(SUM(trashed_at IS NULL AND mark IS NOT NULL), 0)
+            COALESCE(SUM(trashed_at IS NULL AND mark IS NOT NULL), 0),
+            CASE WHEN EXISTS (SELECT 1 FROM backup_targets) THEN COALESCE(SUM(trashed_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM backup_copies c WHERE c.photo_id = photos.id)), 0) ELSE 0 END
          FROM photos",
         [],
-        |r| Ok(Counts { all: r.get(0)?, favorites: r.get(1)?, trash: r.get(2)?, marked: r.get(3)? }),
+        |r| Ok(Counts { all: r.get(0)?, favorites: r.get(1)?, trash: r.get(2)?, marked: r.get(3)?, unbacked: r.get(4)? }),
     )?)
 }
 

@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Section, Sort, Tag, Topic,
+  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RunResult, SavedLens, Section, Sort, Tag, Topic, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -90,4 +90,17 @@ export const api = {
   /** `kind` "note" is the description, "settings" the camera-settings notes, "private" the
    * photographer's private notes. Empty clears. */
   setNote: (ids: number[], kind: "note" | "settings" | "private", text: string) => invoke<void>("set_note", { ids, kind, text }),
+
+  listBackupTargets: () => invoke<BackupTarget[]>("list_backup_targets"),
+  /** `path` is the folder picked (a `frutyfoto-backup` folder is made inside it). */
+  addBackupTarget: (path: string) => invoke<number>("add_backup_target", { path }),
+  setBackupTargetPath: (id: number, path: string) => invoke<void>("set_backup_target_path", { id, path }),
+  renameBackupTarget: (id: number, name: string) => invoke<void>("rename_backup_target", { id, name }),
+  /** Forgets the backup; its files stay on the disk. */
+  removeBackupTarget: (id: number) => invoke<void>("remove_backup_target", { id }),
+  runBackup: (id: number) => invoke<BackupResult>("run_backup", { id }),
+  verifyBackup: (id: number) => invoke<VerifyResult>("verify_backup", { id }),
+  cancelBackup: () => invoke<void>("cancel_backup"),
+  onBackupProgress: (cb: (p: { targetId: number; done: number; total: number }) => void): Promise<UnlistenFn> =>
+    listen<{ targetId: number; done: number; total: number }>("backup://progress", (e) => cb(e.payload)),
 };

@@ -192,6 +192,32 @@ CREATE INDEX idx_album_sections_album ON album_sections(album_id);
 ALTER TABLE album_photos ADD COLUMN section_id INTEGER REFERENCES album_sections(id) ON DELETE SET NULL;
 ALTER TABLE imports ADD COLUMN folder_sections INTEGER NOT NULL DEFAULT 0;
 "#,
+    // v15: backups to other disks. Each target records which photos it holds, where, and
+    // the hash the copy was checked against. Removing a photo or target only drops the
+    // record; files on the backup disk are never deleted.
+    r#"
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE backup_targets (
+    id               INTEGER PRIMARY KEY,
+    name             TEXT NOT NULL,
+    path             TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    last_run_at      TEXT,
+    last_verified_at TEXT
+);
+CREATE TABLE backup_copies (
+    target_id   INTEGER NOT NULL REFERENCES backup_targets(id) ON DELETE CASCADE,
+    photo_id    INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    rel_path    TEXT NOT NULL,
+    hash        TEXT NOT NULL,
+    verified_at TEXT NOT NULL,
+    PRIMARY KEY (target_id, photo_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_backup_copies_photo ON backup_copies(photo_id);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

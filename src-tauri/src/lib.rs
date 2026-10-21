@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod commands;
 pub mod db;
 pub mod dupes;
@@ -78,6 +79,14 @@ pub fn run() {
             rename_lens,
             set_note,
             list_settings_notes,
+            list_backup_targets,
+            add_backup_target,
+            set_backup_target_path,
+            rename_backup_target,
+            remove_backup_target,
+            run_backup,
+            verify_backup,
+            cancel_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running frutyfoto");

@@ -2,6 +2,7 @@ node_modules
 dist
 release
 library-dev
+backup-dev
 src-tauri/target
 src-tauri/gen
 *.db

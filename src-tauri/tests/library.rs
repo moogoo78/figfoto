@@ -1042,3 +1042,110 @@ fn large_library_queries_stay_fast() {
     worst = worst.max(time("counts", &|| queries::counts(&lib).unwrap().all as usize));
     assert!(worst < 100.0, "slowest query took {worst:.1} ms");
 }
+
+#[test]
+fn backup_copies_new_photos_and_checks_them() {
+    use frutyfoto_lib::backup;
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    let disk = _tmp.path().join("usb");
+    std::fs::create_dir_all(&disk).unwrap();
+    let no_cancel = AtomicBool::new(false);
+
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 0, "no backup set up yet");
+    let id = backup::add_target(&lib, &disk).unwrap();
+    let root = disk.join(backup::BACKUP_DIR);
+    let t = &backup::list_targets(&lib).unwrap()[0];
+    assert_eq!((t.name.as_str(), t.available, t.backed_up, t.total), ("usb", true, 0, 3));
+    assert!(t.bytes_to_copy > 0);
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 3);
+    // The same folder can't be added twice, also when the backup folder itself is picked.
+    assert!(backup::add_target(&lib, &disk).is_err());
+    assert!(backup::add_target(&lib, &root).is_err());
+
+    // First run copies everything in the library's layout and snapshots the database.
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.skipped, r.errors.len(), r.cancelled), (3, 0, 0, false), "{:?}", r.errors);
+    for i in 0..3 {
+        let rel = format!("originals/2021/07/15/p{i}.jpg");
+        assert_eq!(hash_file(&root.join(&rel)).unwrap(), hash_file(&lib.root.join(&rel)).unwrap());
+    }
+    let snapshots = std::fs::read_dir(root.join("db")).unwrap().count();
+    assert_eq!(snapshots, 1);
+    let t = &backup::list_targets(&lib).unwrap()[0];
+    assert_eq!((t.backed_up, t.bytes_to_copy), (3, 0));
+    assert!(t.last_run_at.is_some());
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 0);
+
+    // Second run copies nothing; a newly imported photo is the only one copied.
+    assert_eq!(backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap().copied, 0);
+    write(&src.join("new.jpg"), &with_exif(jpeg_bytes(&picture(2, 80, 80), 70), "2022:01:02 03:04:05", "Cam"));
+    import_all(&lib, &src);
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 1);
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.skipped), (1, 0));
+    assert!(root.join("originals/2022/01/02/new.jpg").is_file());
+
+    // Deleting a photo from the library leaves its backup copy alone.
+    queries::trash_photos(&lib, &[ids[0]]).unwrap();
+    empty_trash(&lib).unwrap();
+    assert!(root.join("originals/2021/07/15/p0.jpg").is_file());
+    let t = &backup::list_targets(&lib).unwrap()[0];
+    assert_eq!((t.backed_up, t.total), (3, 3));
+
+    // Verify finds a changed copy and a missing one; the next run copies them again.
+    std::fs::write(root.join("originals/2021/07/15/p1.jpg"), b"bit rot").unwrap();
+    std::fs::remove_file(root.join("originals/2021/07/15/p2.jpg")).unwrap();
+    let v = backup::verify(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((v.checked, v.problems.len()), (3, 2), "{:?}", v.problems);
+    assert_eq!(queries::counts(&lib).unwrap().unbacked, 2);
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!(r.copied, 2);
+    // The changed file is kept; the good copy goes next to it.
+    assert!(root.join("originals/2021/07/15/p1-1.jpg").is_file());
+    assert!(root.join("originals/2021/07/15/p2.jpg").is_file());
+    assert!(backup::verify(&lib, id, &no_cancel, |_, _| {}).unwrap().problems.is_empty());
+
+    // Only the newest snapshots are kept.
+    for _ in 0..6 {
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    }
+    assert_eq!(std::fs::read_dir(root.join("db")).unwrap().count(), 5);
+
+    // Removing the target forgets it but keeps the files.
+    backup::remove_target(&lib, id).unwrap();
+    assert!(backup::list_targets(&lib).unwrap().is_empty());
+    assert!(root.join("originals/2022/01/02/new.jpg").is_file());
+}
+
+#[test]
+fn backup_refuses_other_libraries_and_missing_disks() {
+    use frutyfoto_lib::backup;
+    let Env { _tmp, src, lib } = env();
+    three_photos(&lib, &src);
+    let disk = _tmp.path().join("usb");
+    std::fs::create_dir_all(&disk).unwrap();
+    let id = backup::add_target(&lib, &disk).unwrap();
+
+    // Another library can't use (or overwrite) this backup.
+    let other = Library::open(&_tmp.path().join("other"), true).unwrap();
+    assert!(backup::add_target(&other, &disk).is_err());
+    // Nor can a backup go inside the library.
+    assert!(backup::add_target(&lib, &lib.root.join("originals")).is_err());
+
+    // A cancelled run copies nothing more and saves no snapshot.
+    let r = backup::run(&lib, id, &AtomicBool::new(true), |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.cancelled), (0, true));
+    assert!(!disk.join(backup::BACKUP_DIR).join("db").exists());
+
+    // The disk mounted somewhere else: not available until the target is pointed there.
+    let moved = _tmp.path().join("media/usb");
+    std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+    std::fs::rename(&disk, &moved).unwrap();
+    assert!(!backup::list_targets(&lib).unwrap()[0].available);
+    assert!(backup::run(&lib, id, &AtomicBool::new(false), |_, _| {}).is_err());
+    backup::set_target_path(&lib, id, &moved).unwrap();
+    assert!(backup::list_targets(&lib).unwrap()[0].available);
+    assert_eq!(backup::run(&lib, id, &AtomicBool::new(false), |_, _| {}).unwrap().copied, 3);
+}

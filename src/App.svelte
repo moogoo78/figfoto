@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { store } from "./lib/store.svelte";
+  import Backup from "./views/Backup.svelte";
   import Duplicates from "./views/Duplicates.svelte";
   import ImportDialog from "./views/ImportDialog.svelte";
   import ImportHistory from "./views/ImportHistory.svelte";
@@ -32,6 +33,8 @@
             <Marks />
           {:else if store.view.kind === "lenses"}
             <Lenses />
+          {:else if store.view.kind === "backup"}
+            <Backup />
           {:else if store.view.kind === "topic"}
             <TopicView id={store.view.id} />
           {:else}

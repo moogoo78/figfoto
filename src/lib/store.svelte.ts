@@ -26,7 +26,7 @@ class Store {
   /** Sections of the album being viewed. */
   sections = $state.raw<Section[]>([]);
   cameras = $state.raw<string[]>([]);
-  counts = $state.raw<Counts>({ all: 0, favorites: 0, trash: 0, marked: 0 });
+  counts = $state.raw<Counts>({ all: 0, favorites: 0, trash: 0, marked: 0, unbacked: 0 });
   marks = $state.raw<MarkSlot[]>([]);
   sources = $state.raw<string[]>([]);
   /** Lenses in the library (EXIF or set by hand), for suggestions. */
@@ -46,6 +46,9 @@ class Store {
   /** Mark whose batch is running, with copy progress. */
   runningMark = $state<Mark | null>(null);
   markProgress = $state<{ done: number; total: number } | null>(null);
+  /** Backup target being backed up or verified, with progress. */
+  backupTask = $state<{ id: number; kind: "run" | "verify" } | null>(null);
+  backupProgress = $state<{ done: number; total: number } | null>(null);
 
   #toastId = 0;
   #lastImportRefresh = 0;
@@ -79,6 +82,7 @@ class Store {
   async init() {
     await api.onImportProgress((p) => this.#onProgress(p));
     await api.onMarkProgress((p) => (this.markProgress = { done: p.done, total: p.total }));
+    await api.onBackupProgress((p) => (this.backupProgress = { done: p.done, total: p.total }));
     try {
       const lib = await api.currentLibrary();
       this.root = lib?.root ?? null;
@@ -223,6 +227,37 @@ class Store {
     }
     this.runningMark = null;
     this.markProgress = null;
+    this.version++;
+    await this.refreshMeta().catch(() => {});
+  }
+
+  /** Backs up to (`run`) or checks (`verify`) a backup disk; one task at a time. */
+  async backup(id: number, kind: "run" | "verify") {
+    if (this.backupTask) return;
+    this.backupTask = { id, kind };
+    this.backupProgress = null;
+    try {
+      if (kind === "run") {
+        const r = await api.runBackup(id);
+        const parts = [t("Backup: {n} photo(s) copied", { n: r.copied })];
+        if (r.skipped) parts.push(t("{n} already there", { n: r.skipped }));
+        if (r.cancelled) parts.push(t("cancelled"));
+        if (r.errors.length) parts.push(`${t("{n} failed", { n: r.errors.length })} — ${r.errors.slice(0, 3).join("; ")}`);
+        this.toast(parts.join(", "), r.errors.length > 0);
+      } else {
+        const r = await api.verifyBackup(id);
+        const parts = [t("Checked {n} photo(s)", { n: r.checked })];
+        if (r.cancelled) parts.push(t("cancelled"));
+        if (r.problems.length) {
+          parts.push(`${t("{n} missing or changed, will be copied again", { n: r.problems.length })} — ${r.problems.slice(0, 3).join("; ")}`);
+        }
+        this.toast(parts.join(", "), r.problems.length > 0);
+      }
+    } catch (e) {
+      this.toast(errorText(e), true);
+    }
+    this.backupTask = null;
+    this.backupProgress = null;
     this.version++;
     await this.refreshMeta().catch(() => {});
   }

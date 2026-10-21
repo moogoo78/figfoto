@@ -35,6 +35,8 @@ services:
       - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
       - ${PHOTOS_DIR:-~/Pictures}:/photos:ro
       - ./library-dev:/library
+      # Stands in for a second disk when trying out Backup.
+      - ./backup-dev:/backup
     ipc: host
     # GPU for WebKit rendering; remove if the host has no /dev/dri.
     devices:

@@ -7,7 +7,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, Result};
-use crate::import::{copy_verified, hash_file, reserve_dest};
+use crate::import::copy_into;
 use crate::library::Library;
 use crate::queries;
 
@@ -219,17 +219,7 @@ fn copy_out(lib: &Library, rel: &str, name: &str, hash: &str, target: &Path) -> 
     let sub = rel.split_once('/').map(|(_, rest)| rest).unwrap_or(rel);
     let dir = target.join(sub).parent().map(Path::to_path_buf).unwrap_or_else(|| target.to_path_buf());
     let file_name = Path::new(rel).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name.to_string());
-    let existing = dir.join(&file_name);
-    if existing.is_file() && hash_file(&existing)? == hash {
-        return Ok(false);
-    }
-    std::fs::create_dir_all(&dir)?;
-    let (dest, file) = reserve_dest(&dir, &file_name)?;
-    if let Err(e) = copy_verified(&src, file, hash) {
-        let _ = std::fs::remove_file(&dest);
-        return Err(e);
-    }
-    Ok(true)
+    Ok(copy_into(&src, hash, &dir, &file_name)?.1)
 }
 
 /// Distinct user-set sources, for suggestions and filtering.
