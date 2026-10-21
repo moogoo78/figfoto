@@ -12,6 +12,8 @@
     onselect,
     ondayaction,
     onsection,
+    collapsed = [],
+    ontoggle,
     showOrigin = false,
   }: {
     list: PhotoList;
@@ -22,6 +24,9 @@
     /** Section headings (album sorted by section): rename, reorder or delete a section, or
      * drop photos (`ids`) on it. Section 0 is "No section". */
     onsection?: (action: "rename" | "up" | "down" | "delete" | "drop", section: number, arg: { name?: string; ids?: number[] }) => void;
+    /** Sections whose photos are hidden, and the heading caret that hides or shows them. */
+    collapsed?: number[];
+    ontoggle?: (section: number) => void;
     /** Badge each photo with where it came from (phone, camera, LINE…). */
     showOrigin?: boolean;
   } = $props();
@@ -54,7 +59,8 @@
         rows.push({ kind: "header", top, day: b.day, count: b.count, start: index, section: b.section, label: b.label });
         top += HEADER;
       }
-      for (let i = 0; i < b.count; i += cols) {
+      const hidden = b.section != null && collapsed.includes(b.section);
+      for (let i = 0; !hidden && i < b.count; i += cols) {
         rows.push({ kind: "photos", top, start: index + i, n: Math.min(cols, b.count - i) });
         top += cell + GAP;
       }
@@ -158,6 +164,11 @@
           ondragover={(e) => { if (onsection && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
           ondragleave={() => dropOn === id && (dropOn = null)}
           ondrop={(e) => dropPhotos(e, id)}>
+          {#if ontoggle}
+            {@const open = !collapsed.includes(id)}
+            <button class="link caret" aria-label={open ? t("Collapse") : t("Expand")} aria-expanded={open}
+              onclick={() => ontoggle(id)}>{open ? "▾" : "▸"}</button>
+          {/if}
           {#if editing === id}
             <input class="secname" value={row.label} use:focusSelect
               onblur={(e) => commitName(id, row.label, e.currentTarget.value)}
@@ -244,6 +255,7 @@
   .section.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
   .section .none { color: var(--muted); font-weight: 400; }
   .secname { font-size: 14px; width: 260px; }
+  .caret { width: 18px; margin-left: -4px; font-size: 11px; color: var(--muted); }
   .dayact { font-size: 12px; font-weight: 400; margin-left: 6px; visibility: hidden; }
   .day:hover .dayact { visibility: visible; }
   .cell {

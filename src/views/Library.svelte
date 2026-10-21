@@ -75,6 +75,25 @@
   const currentAlbum = $derived(albumId == null ? undefined : store.albums.find((a) => a.id === albumId));
   const markView = $derived(store.view.kind === "mark" ? store.view.mark : null);
 
+  // Collapsed sections of this album, remembered per library in this browser only.
+  const collapseKey = $derived(`frutyfoto.collapsedSections:${store.root}:${albumId}`);
+  let collapsedSections = $state<number[]>([]);
+  $effect(() => {
+    try {
+      collapsedSections = JSON.parse(localStorage.getItem(collapseKey) ?? "[]");
+    } catch {
+      collapsedSections = [];
+    }
+  });
+  function toggleSection(id: number) {
+    collapsedSections = collapsedSections.includes(id) ? collapsedSections.filter((c) => c !== id) : [...collapsedSections, id];
+    try {
+      localStorage.setItem(collapseKey, JSON.stringify(collapsedSections));
+    } catch {
+      // Not remembered; fine.
+    }
+  }
+
   function select(i: number, e: MouseEvent) {
     const p = list.get(i);
     if (!p) return;
@@ -381,7 +400,8 @@
     {:else}
       <VirtualGrid bind:this={grid} {list} onselect={select} onopen={(i) => (viewerIndex = i)}
         ondayaction={inTrash ? undefined : dayAction} showOrigin={albumId != null}
-        onsection={albumId != null && store.sort === "section" ? onsection : undefined} />
+        onsection={albumId != null && store.sort === "section" ? onsection : undefined}
+        collapsed={collapsedSections} ontoggle={albumId != null && store.sort === "section" ? toggleSection : undefined} />
     {/if}
   </div>
 </section>
