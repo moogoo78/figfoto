@@ -3,6 +3,65 @@
 A desktop photo organizer (Tauri 2 + Svelte 5). Import copies photos into a managed library
 sorted by date, then lets you browse, rate, tag, group into albums and weed out duplicates.
 
+## Use flow
+
+`*` = planned.
+
+```
+                        ┌────────────────────────────┐
+                        │  Open / create a library   │
+                        │  (pick a library folder)   │
+                        └─────────────┬──────────────┘
+                                      │
+   SOURCES                            ▼
+ ┌──────────────┐        ┌────────────────────────────┐
+ │ hard drive   │        │          IMPORT            │
+ │ SD card      │──────▶ │ • camera/SD  → by date     │
+ │ phone folder │        │ • organized folders        │
+ │ LINE / FB    │        │     → albums (+ sections)  │
+ │ *cloud sync  │        │ • source label (LINE, …)   │
+ └──────────────┘        │ skip: same hash, deleted,  │
+                         │       unchanged path       │
+                         └─────────────┬──────────────┘
+                                       │ copy (sources never modified)
+                                       ▼
+                ┌──────────────────────────────────────────┐
+                │              LIBRARY (disk)              │
+                │ originals/YYYY/MM/DD/   albums/<album>/  │
+                │ .frutyfoto/ db · thumbs · previews       │
+                └─────────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                ┌──────────────────────────────────────────┐
+                │      BROWSE  (All photos, by date)       │
+                │   grid ⇄ viewer · filter · sort          │
+                └───┬───────────────┬──────────────────┬───┘
+                    │               │                  │
+                    ▼               ▼                  ▼
+        ┌──────────────────┐ ┌───────────────┐ ┌──────────────────┐
+        │      CURATE      │ │   DESCRIBE    │ │    ORGANIZE      │
+        │ X / 1-4 marks    │ │ description   │ │ albums → files   │
+        │ rating ★, fav ♥  │ │ camera, lens  │ │   move into      │
+        │ duplicates view  │ │ private notes │ │   albums/<name>  │
+        │ Del → trash      │ │ date fix      │ │ topics, sections │
+        └────────┬─────────┘ └───────────────┘ │ tags             │
+                 │                             └──────────────────┘
+                 ▼
+        ┌──────────────────┐
+        │  MARKS: run batch│
+        │ X  → library trash ──▶ Empty trash ──▶ system Trash
+        │ 1-4→ copy to folder / add to album / add tag
+        └────────┬─────────┘
+                 │
+                 ▼
+   OUTPUT ┌───────────────────────────────────────────────────┐
+          │ • copy to target folder / export album            │
+          │ • BACKUP to 2nd disk: copy new, check hash, verify│
+          │     └▶ *offload originals (keep thumbnail/screen) │
+          │ • *publish album online ⇄ sync back edits         │
+          └───────────────────────────────────────────────────┘
+```
+
 ## Library layout
 
 ```
