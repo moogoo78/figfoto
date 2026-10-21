@@ -139,7 +139,7 @@ pub enum Sort {
     TakenAsc,
     ImportedDesc,
     RatingDesc,
-    /// In an album: by section (in the album's order, no section last), then date taken.
+    /// In an album: by section (by date or name, per the album; no section last), then date taken.
     /// Elsewhere the same as `TakenAsc`.
     Section,
 }
@@ -150,14 +150,14 @@ impl Sort {
         if self == Sort::Section && f.album_id.is_none() { Sort::TakenAsc } else { self }
     }
 
-    fn order_by(self, f: &Filter) -> String {
-        match self.resolve(f) {
+    fn order_by(self, lib: &Library, f: &Filter) -> Result<String> {
+        Ok(match self.resolve(f) {
             Sort::TakenDesc => "p.taken_at DESC, p.id DESC".into(),
             Sort::TakenAsc => "p.taken_at ASC, p.id ASC".into(),
             Sort::ImportedDesc => "p.imported_at DESC, p.id DESC".into(),
             Sort::RatingDesc => "p.rating DESC, p.taken_at DESC, p.id DESC".into(),
-            Sort::Section => format!("{}, p.taken_at ASC, p.id ASC", section_rank(f.album_id.unwrap_or_default())),
-        }
+            Sort::Section => format!("{}, p.taken_at ASC, p.id ASC", section_rank(lib, f.album_id.unwrap_or_default())?),
+        })
     }
 
     fn groups_by_day(self) -> bool {
@@ -165,14 +165,17 @@ impl Sort {
     }
 }
 
-/// SQL for the position of photo `p`'s section in `album_id`; photos without one sort last.
-/// The id is an integer, so formatting it into the SQL is safe.
-fn section_rank(album_id: i64) -> String {
-    format!(
-        "COALESCE((SELECT s.position FROM album_photos ap JOIN album_sections s ON s.id = ap.section_id
-                    WHERE ap.album_id = {album_id} AND ap.photo_id = p.id), {})",
+/// SQL for the place of photo `p`'s section in `album_id`, in `list_sections` order; photos
+/// without one sort last. The ids are integers, so formatting them into the SQL is safe.
+fn section_rank(lib: &Library, album_id: i64) -> Result<String> {
+    let whens: String = list_sections(lib, album_id)?.iter().enumerate().map(|(i, s)| format!(" WHEN {} THEN {i}", s.id)).collect();
+    if whens.is_empty() {
+        return Ok("NULL".into());
+    }
+    Ok(format!(
+        "CASE (SELECT ap.section_id FROM album_photos ap WHERE ap.album_id = {album_id} AND ap.photo_id = p.id){whens} ELSE {} END",
         i64::MAX
-    )
+    ))
 }
 
 /// Builds the WHERE clause (and its parameters) for a filter.
@@ -256,7 +259,7 @@ pub fn list_photos(lib: &Library, f: &Filter, sort: Sort, offset: i64, limit: i6
     args.push(Box::new(offset));
     let sql = format!(
         "SELECT {PHOTO_COLS} FROM photos p WHERE {wh} ORDER BY {} LIMIT ? OFFSET ?",
-        sort.order_by(f)
+        sort.order_by(lib, f)?
     );
     let conn = lib.conn();
     let mut stmt = conn.prepare(&sql)?;
@@ -269,7 +272,7 @@ pub fn list_ids(lib: &Library, f: &Filter, sort: Sort, offset: i64, limit: i64) 
     let (wh, mut args) = where_clause(f);
     args.push(Box::new(limit));
     args.push(Box::new(offset));
-    let sql = format!("SELECT p.id FROM photos p WHERE {wh} ORDER BY {} LIMIT ? OFFSET ?", sort.order_by(f));
+    let sql = format!("SELECT p.id FROM photos p WHERE {wh} ORDER BY {} LIMIT ? OFFSET ?", sort.order_by(lib, f)?);
     let conn = lib.conn();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(args.iter()), |r| r.get(0))?;
@@ -374,6 +377,8 @@ pub struct Album {
     pub topic_id: Option<i64>,
     /// Number of sections the album is split into.
     pub sections: i64,
+    /// How the sections are ordered: "date" (by their first photo) or "topic" (by name).
+    pub section_kind: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -502,7 +507,8 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
                  WHERE ap.album_id = a.id AND p.trashed_at IS NULL
                  ORDER BY ap.position, p.taken_at LIMIT 1)),
             a.topic_id,
-            (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id)
+            (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id),
+            a.section_kind
          FROM albums a
          -- Newest first, by the latest photo taken (an empty album by when it was made).
          ORDER BY COALESCE(
@@ -521,6 +527,7 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
             topic_id: r.get(5)?,
             sections: r.get(6)?,
+            section_kind: r.get(7)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -679,27 +686,39 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
 pub struct Section {
     pub id: i64,
     pub name: String,
-    pub position: i64,
     /// Photos in the section (not trashed).
     pub count: i64,
 }
 
-/// The album's sections, in their order.
+/// The album's sections, in order: by date, the one with the earliest photo first (empty ones
+/// last); by topic, by name.
 pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.name, s.position,
-            (SELECT COUNT(*) FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
-               WHERE ap.section_id = s.id AND p.trashed_at IS NULL)
-         FROM album_sections s WHERE s.album_id = ?1 ORDER BY s.position, s.id",
+        "SELECT s.id, s.name, COUNT(p.id), MIN(p.taken_at) AS first
+         FROM album_sections s JOIN albums a ON a.id = s.album_id
+           LEFT JOIN album_photos ap ON ap.section_id = s.id
+           LEFT JOIN photos p ON p.id = ap.photo_id AND p.trashed_at IS NULL
+         WHERE s.album_id = ?1
+         GROUP BY s.id
+         ORDER BY CASE WHEN a.section_kind = 'date' THEN first IS NULL END,
+                  CASE WHEN a.section_kind = 'date' THEN first END,
+                  s.name COLLATE NOCASE, s.id",
     )?;
-    let rows = stmt.query_map([album_id], |r| {
-        Ok(Section { id: r.get(0)?, name: r.get(1)?, position: r.get(2)?, count: r.get(3)? })
-    })?;
+    let rows = stmt.query_map([album_id], |r| Ok(Section { id: r.get(0)?, name: r.get(1)?, count: r.get(2)? }))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// The album's section named `name` (ignoring case), created at the end if there is none.
+/// Sets how the album's sections are ordered: "date" or "topic".
+pub fn set_section_kind(lib: &Library, album_id: i64, kind: &str) -> Result<()> {
+    if !matches!(kind, "date" | "topic") {
+        return Err(AppError::msg("unknown section kind"));
+    }
+    lib.conn().execute("UPDATE albums SET section_kind = ?1 WHERE id = ?2", params![kind, album_id])?;
+    Ok(())
+}
+
+/// The album's section named `name` (ignoring case), created if there is none.
 pub fn create_section(lib: &Library, album_id: i64, name: &str) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
@@ -716,11 +735,7 @@ pub fn create_section(lib: &Library, album_id: i64, name: &str) -> Result<i64> {
     if let Some(id) = existing {
         return Ok(id);
     }
-    conn.execute(
-        "INSERT INTO album_sections (album_id, name, position)
-         SELECT ?1, ?2, COALESCE(MAX(position), -1) + 1 FROM album_sections WHERE album_id = ?1",
-        params![album_id, name],
-    )?;
+    conn.execute("INSERT INTO album_sections (album_id, name, position) VALUES (?1, ?2, 0)", params![album_id, name])?;
     Ok(conn.last_insert_rowid())
 }
 
@@ -736,33 +751,6 @@ pub fn rename_section(lib: &Library, id: i64, name: &str) -> Result<()> {
 /// Deletes a section; its photos stay in the album, in no section.
 pub fn delete_section(lib: &Library, id: i64) -> Result<()> {
     lib.conn().execute("DELETE FROM album_sections WHERE id = ?1", [id])?;
-    Ok(())
-}
-
-/// Moves a section one place earlier (`delta` < 0) or later, swapping with its neighbour.
-pub fn move_section(lib: &Library, id: i64, delta: i64) -> Result<()> {
-    let mut conn = lib.conn();
-    let tx = conn.transaction()?;
-    let (album_id, pos): (i64, i64) =
-        tx.query_row("SELECT album_id, position FROM album_sections WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    let (cmp, dir) = if delta < 0 { ("<", "DESC") } else { (">", "ASC") };
-    let neighbour: Option<(i64, i64)> = tx
-        .query_row(
-            &format!(
-                "SELECT id, position FROM album_sections WHERE album_id = ?1 AND (position, id) {cmp} (?2, ?3)
-                 ORDER BY position {dir}, id {dir} LIMIT 1"
-            ),
-            params![album_id, pos, id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?;
-    if let Some((other, other_pos)) = neighbour {
-        // Equal positions (shouldn't happen) still end up in a definite order.
-        let (a, b) = if other_pos == pos { if delta < 0 { (pos, pos + 1) } else { (pos + 1, pos) } } else { (other_pos, pos) };
-        tx.execute("UPDATE album_sections SET position = ?1 WHERE id = ?2", [a, id])?;
-        tx.execute("UPDATE album_sections SET position = ?1 WHERE id = ?2", [b, other])?;
-    }
-    tx.commit()?;
     Ok(())
 }
 

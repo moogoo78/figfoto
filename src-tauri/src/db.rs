@@ -222,6 +222,11 @@ CREATE INDEX idx_backup_copies_photo ON backup_copies(photo_id);
     r#"
 ALTER TABLE backup_targets ADD COLUMN kind TEXT NOT NULL DEFAULT 'disk';
 "#,
+    // v17: an album's sections are either by date (ordered by their first photo) or by
+    // topic (ordered by name); album_sections.position is no longer used.
+    r#"
+ALTER TABLE albums ADD COLUMN section_kind TEXT NOT NULL DEFAULT 'date';
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

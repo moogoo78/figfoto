@@ -55,7 +55,7 @@ pub fn run() {
             create_section,
             rename_section,
             delete_section,
-            move_section,
+            set_section_kind,
             set_photo_section,
             split_by_day,
             delete_album,

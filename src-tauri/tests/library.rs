@@ -686,11 +686,17 @@ fn albums_have_sections() {
     let sections = |album: i64| -> Vec<(String, i64)> {
         queries::list_sections(&lib, album).unwrap().into_iter().map(|s| (s.name, s.count)).collect()
     };
-    assert_eq!(sections(japan), vec![("Kyoto".into(), 1), ("Nara".into(), 2)]);
-
-    // By section: Kyoto, then Nara (by date), then the photo in no section.
+    // By date (the default): Nara holds the earliest photos.
+    assert_eq!(queries::list_albums(&lib).unwrap().iter().find(|a| a.id == japan).unwrap().section_kind, "date");
+    assert_eq!(sections(japan), vec![("Nara".into(), 2), ("Kyoto".into(), 1)]);
     let f = Filter { album_id: Some(japan), ..Default::default() };
     let order = |f: &Filter| -> Vec<i64> { queries::list_photos(&lib, f, Sort::Section, 0, 10).unwrap().iter().map(|p| p.id).collect() };
+    assert_eq!(order(&f), vec![ids[0], ids[1], ids[2], ids[3]]);
+
+    // By topic: by name, so Kyoto, then Nara (each by date), then the photo in no section.
+    assert!(queries::set_section_kind(&lib, japan, "bogus").is_err());
+    queries::set_section_kind(&lib, japan, "topic").unwrap();
+    assert_eq!(sections(japan), vec![("Kyoto".into(), 1), ("Nara".into(), 2)]);
     assert_eq!(order(&f), vec![ids[2], ids[0], ids[1], ids[3]]);
     assert_eq!(queries::list_ids(&lib, &f, Sort::Section, 0, 10).unwrap(), order(&f));
     let buckets = |f: &Filter| -> Vec<(Option<i64>, String, i64)> {
@@ -704,15 +710,12 @@ fn albums_have_sections() {
     let detail = queries::get_photo(&lib, ids[2]).unwrap();
     assert_eq!((detail.albums.len(), detail.sections.get(&japan).map(String::as_str), detail.sections.get(&other)), (2, Some("Kyoto"), None));
 
-    queries::move_section(&lib, nara, -1).unwrap();
-    assert_eq!(sections(japan), vec![("Nara".into(), 2), ("Kyoto".into(), 1)]);
-    assert_eq!(order(&f), vec![ids[0], ids[1], ids[2], ids[3]]);
-    queries::move_section(&lib, nara, -1).unwrap(); // already first: no change
-    assert_eq!(sections(japan)[0].0, "Nara");
     queries::rename_section(&lib, nara, "Nara Park").unwrap();
 
     // Split by day only takes photos in no section.
     assert_eq!(queries::split_by_day(&lib, japan).unwrap(), 1);
+    assert_eq!(sections(japan), vec![("2021-07-16".into(), 1), ("Kyoto".into(), 1), ("Nara Park".into(), 2)]);
+    queries::set_section_kind(&lib, japan, "date").unwrap();
     assert_eq!(sections(japan), vec![("Nara Park".into(), 2), ("Kyoto".into(), 1), ("2021-07-16".into(), 1)]);
     assert_eq!(queries::split_by_day(&lib, japan).unwrap(), 0);
 
@@ -721,7 +724,8 @@ fn albums_have_sections() {
     assert_eq!(buckets(&f).last().unwrap(), &(Some(0), String::new(), 2));
     assert_eq!(queries::list_albums(&lib).unwrap().iter().find(|a| a.id == japan).unwrap().count, 4);
     queries::set_photo_section(&lib, japan, &ids[2..3], None).unwrap();
-    assert_eq!(sections(japan), vec![("Kyoto".into(), 0), ("2021-07-16".into(), 1)]);
+    // An empty section has no date, so it goes last.
+    assert_eq!(sections(japan), vec![("2021-07-16".into(), 1), ("Kyoto".into(), 0)]);
 
     // Deleting the album removes its sections.
     queries::delete_album(&lib, japan).unwrap();
@@ -939,6 +943,8 @@ fn subfolders_can_become_sections() {
     let sections = || -> Vec<(String, i64)> {
         queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.count)).collect()
     };
+    // Subfolder sections are topics, listed by name.
+    assert_eq!(queries::list_albums(&lib).unwrap().into_iter().find(|a| a.id == japan).unwrap().section_kind, "topic");
     assert_eq!(sections(), vec![("Kyoto".into(), 1), ("Kyoto / Day 2".into(), 1), ("Nara".into(), 1)]);
     let f = Filter { album_id: Some(japan), ..Default::default() };
     let names: Vec<String> = queries::list_photos(&lib, &f, Sort::Section, 0, 10).unwrap().into_iter().map(|p| p.orig_name).collect();

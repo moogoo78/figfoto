@@ -9,6 +9,7 @@
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
   import AlbumOptions from "../lib/AlbumOptions.svelte";
+  import type { SectionKind } from "../lib/types";
   import SettingsInput from "../lib/SettingsInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
@@ -174,6 +175,13 @@
     store.sort = "section";
   }
 
+  function setSectionKind(kind: SectionKind) {
+    sectionMenu = false;
+    if (albumId == null || currentAlbum?.sectionKind === kind) return;
+    const album = albumId;
+    store.mutate(() => api.setSectionKind(album, kind));
+  }
+
   function moveToSection(section: number | null) {
     if (albumId == null) return;
     const [album, ids] = [albumId, selected];
@@ -181,11 +189,10 @@
     if (section != null) store.sort = "section";
   }
 
-  async function onsection(action: "rename" | "up" | "down" | "delete" | "drop", id: number, arg: { name?: string; ids?: number[] }) {
+  async function onsection(action: "rename" | "delete" | "drop", id: number, arg: { name?: string; ids?: number[] }) {
     if (albumId == null) return;
     const album = albumId;
     if (action === "rename" && arg.name) store.mutate(() => api.renameSection(id, arg.name!));
-    else if (action === "up" || action === "down") store.mutate(() => api.moveSection(id, action === "up" ? -1 : 1));
     else if (action === "drop" && arg.ids?.length) {
       store.mutate(() => api.setPhotoSection(album, arg.ids!, id || null), t("Moved {n} photo(s)", { n: arg.ids.length }));
     } else if (action === "delete") {
@@ -265,6 +272,15 @@
                 {selected.length ? t("New section from {n} selected", { n: selected.length }) : t("New section")}
               </button>
               <button role="menuitem" onclick={splitByDay} title={t("Photos in no section go into one section per day")}>{t("Split by day")}</button>
+              <hr />
+              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "date"} onclick={() => setSectionKind("date")}
+                title={t("Sections in the order their photos were taken")}>
+                <span class="check">{currentAlbum.sectionKind === "date" ? "✓" : ""}</span>{t("By date")}
+              </button>
+              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "topic"} onclick={() => setSectionKind("topic")}
+                title={t("Sections in order of their names")}>
+                <span class="check">{currentAlbum.sectionKind === "topic" ? "✓" : ""}</span>{t("By topic")}
+              </button>
             </div>
           {/if}
         </span>
@@ -430,5 +446,7 @@
     box-shadow: 0 4px 14px rgb(0 0 0 / 0.35); }
   .menu button { border: none; background: none; text-align: left; padding: 6px 10px; font-size: 13px; white-space: nowrap; }
   .menu button:hover { background: var(--hover); }
+  .menu hr { margin: 4px 0; border: none; border-top: 1px solid var(--border); }
+  .menu .check { display: inline-block; width: 1.2em; }
   .empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); }
 </style>

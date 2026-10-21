@@ -132,7 +132,9 @@
 
             - make: by hand / split by day / added subfolders
 
-            - album page: headings in your order, "No section" last
+            - two kinds per album: by date (sections in the order their photos were taken) or by topic (by name); added subfolders → by topic
+
+            - album page: headings in that order, "No section" last
 
             - move photos: selection bar or drag onto a heading
 

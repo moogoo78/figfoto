@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, Sort, Tag, Topic, VerifyResult,
+  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, SectionKind, Sort, Tag, Topic, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -52,8 +52,7 @@ export const api = {
   createSection: (albumId: number, name: string) => invoke<number>("create_section", { albumId, name }),
   renameSection: (id: number, name: string) => invoke<void>("rename_section", { id, name }),
   deleteSection: (id: number) => invoke<void>("delete_section", { id }),
-  /** `delta` -1 moves the section up, 1 down. */
-  moveSection: (id: number, delta: number) => invoke<void>("move_section", { id, delta }),
+  setSectionKind: (albumId: number, kind: SectionKind) => invoke<void>("set_section_kind", { albumId, kind }),
   /** `sectionId` null puts the photos in no section. */
   setPhotoSection: (albumId: number, ids: number[], sectionId: number | null) =>
     invoke<void>("set_photo_section", { albumId, ids, sectionId }),

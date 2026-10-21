@@ -363,6 +363,11 @@ fn add_by_hash(lib: &Library, album: i64, section: Option<&str>, hashes: &[Strin
     let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
     queries::add_to_album(lib, album, &ids)?;
     if let Some(name) = section {
+        // Folder names are topics, so an album that gets its first sections this way lists
+        // them by name; one the user already split keeps its kind.
+        if queries::list_sections(lib, album)?.is_empty() {
+            queries::set_section_kind(lib, album, "topic")?;
+        }
         let section = queries::create_section(lib, album, name)?;
         // Photos the user already put in a section keep it.
         let conn = lib.conn();

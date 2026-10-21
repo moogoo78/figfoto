@@ -322,8 +322,8 @@ pub async fn delete_section(state: State<'_, AppState>, id: i64) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn move_section(state: State<'_, AppState>, id: i64, delta: i64) -> Result<()> {
-    queries::move_section(&*state.lib()?, id, delta)
+pub async fn set_section_kind(state: State<'_, AppState>, album_id: i64, kind: String) -> Result<()> {
+    queries::set_section_kind(&*state.lib()?, album_id, &kind)
 }
 
 #[tauri::command]

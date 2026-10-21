@@ -23,7 +23,7 @@
     ondayaction?: (action: "select" | "album", day: string, start: number, count: number) => void;
     /** Section headings (album sorted by section): rename, reorder or delete a section, or
      * drop photos (`ids`) on it. Section 0 is "No section". */
-    onsection?: (action: "rename" | "up" | "down" | "delete" | "drop", section: number, arg: { name?: string; ids?: number[] }) => void;
+    onsection?: (action: "rename" | "delete" | "drop", section: number, arg: { name?: string; ids?: number[] }) => void;
     /** Sections whose photos are hidden, and the heading caret that hides or shows them. */
     collapsed?: number[];
     ontoggle?: (section: number) => void;
@@ -187,8 +187,6 @@
             <button class="link dayact" onclick={() => ondayaction("select", "", row.start, row.count)}>{t("Select")}</button>
           {/if}
           {#if id && onsection}
-            <button class="link dayact" title={t("Move up")} onclick={() => onsection("up", id, {})}>↑</button>
-            <button class="link dayact" title={t("Move down")} onclick={() => onsection("down", id, {})}>↓</button>
             <button class="link dayact" title={t("Delete section")} onclick={() => onsection("delete", id, { name: row.label })}>×</button>
           {/if}
         </h3>

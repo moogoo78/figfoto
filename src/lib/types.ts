@@ -65,13 +65,16 @@ export interface Album {
   topicId: number | null;
   /** Number of sections the album is split into. */
   sections: number;
+  /** How the sections are ordered: by their first photo, or by name. */
+  sectionKind: SectionKind;
 }
+
+export type SectionKind = "date" | "topic";
 
 /** A named part of an album, like "Kyoto" in "2019 Japan". */
 export interface Section {
   id: number;
   name: string;
-  position: number;
   count: number;
 }
 
