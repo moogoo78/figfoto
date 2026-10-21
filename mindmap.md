@@ -136,6 +136,8 @@
 
             - move photos: selection bar or drag onto a heading
 
+            - collapse / expand a section (caret on the heading; remembered per album)
+
       - tag
 
       - find / filter

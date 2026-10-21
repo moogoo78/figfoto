@@ -105,6 +105,24 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, HEIC/HEIF. HEIC is decoded with l
 (compiled into the app). HEIC and TIFF get a full-size JPEG preview in `.frutyfoto/previews/`
 for the viewer; missing previews are created in the background when a library is opened.
 
+### Backup
+
+The **Backup** view copies the library to other disks. Click **Add backup disk…**, pick a folder
+on the disk, then **Back up now**. Each disk gets a `frutyfoto-backup/` folder that can be browsed
+and restored without the app:
+
+```
+frutyfoto-backup/
+  originals/YYYY/MM/DD/<name>.<ext>   # every photo, by date
+  db/library-<time>.db                # library database snapshot, newest 5 kept
+```
+
+Each run copies only what's new, and every copy is checked by hash. Backups only add: photos you
+delete from the library stay on the backup. **Verify** reads every copy back; missing or changed
+ones are copied again on the next run. You can keep several disks, each with its own record. If a
+disk shows up at another path, use **Change folder…**; another library's backup folder is refused.
+The sidebar shows how many photos are not backed up yet.
+
 ## Development (Docker)
 
 Everything builds and runs in a container; the window is shown on the host display via Wayland
