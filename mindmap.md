@@ -164,6 +164,28 @@
 
       - \*backblaze b2
 
+      - \*offload originals (save local disk)
+
+         - only for photos verified in the backup (hash match)
+
+         - keep locally (user picks the level)
+
+            - thumbnail (400px)
+
+            - screen size (thumbnail + ~1600px JPEG)
+
+         - set per album; a photo in several albums is offloaded only when all of them are
+
+         - need a larger copy
+
+            - original → download from the backup
+
+            - web size → download from the published album
+
+            - "Bring back" → restore the original to the library
+
+         - grid / viewer show an "offloaded" badge
+
    - \*publish album (online)
 
       - desktop is the master (originals + full library)
