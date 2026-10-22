@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, SectionKind, Sort, Tag, Topic, VerifyResult,
+  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, FolderInfo, FolderRole, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, SectionKind, Sort, Tag, Category, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -10,8 +10,11 @@ export const api = {
   openLibrary: (path: string, create: boolean) => invoke<{ root: string }>("open_library", { path, create }),
   currentLibrary: () => invoke<{ root: string } | null>("current_library"),
 
-  startImport: (src: string, source: string, folderAlbums: boolean, folderSections: boolean, singleAlbum: boolean, includeDeleted: boolean) =>
-    invoke<void>("start_import", { src, source: source || null, folderAlbums, folderSections, singleAlbum, includeDeleted }),
+  /** `plan` (organized folders): what each folder becomes, keyed by its path inside `src`. */
+  startImport: (src: string, source: string, folderAlbums: boolean, plan: Record<string, FolderRole> | null, includeDeleted: boolean) =>
+    invoke<void>("start_import", { src, source: source || null, folderAlbums, plan, includeDeleted }),
+  /** The folders under `src` that hold photos, each followed by the ones inside it. */
+  scanFolders: (src: string) => invoke<FolderInfo[]>("scan_folders", { src }),
   cancelImport: () => invoke<void>("cancel_import"),
   listImports: () => invoke<ImportRecord[]>("list_imports"),
   importErrors: (importId: number) => invoke<{ path: string; error: string }[]>("import_errors", { importId }),
@@ -41,14 +44,18 @@ export const api = {
   listAlbums: () => invoke<Album[]>("list_albums"),
   createAlbum: (name: string) => invoke<number>("create_album", { name }),
   renameAlbum: (id: number, name: string) => invoke<void>("rename_album", { id, name }),
-  listTopics: () => invoke<Topic[]>("list_topics"),
-  createTopic: (name: string) => invoke<number>("create_topic", { name }),
-  renameTopic: (id: number, name: string) => invoke<void>("rename_topic", { id, name }),
-  deleteTopic: (id: number) => invoke<void>("delete_topic", { id }),
-  /** `topicId` null takes the albums out of their topic. */
-  setAlbumTopic: (albumIds: number[], topicId: number | null) => invoke<void>("set_album_topic", { albumIds, topicId }),
-  /** Pins an album or topic to the sidebar's shortcuts, or unpins it. */
-  setShortcut: (kind: "album" | "topic", id: number, pinned: boolean) => invoke<void>("set_shortcut", { kind, id, pinned }),
+  listCategories: () => invoke<Category[]>("list_categories"),
+  /** `parentId` null makes a top-level category. */
+  createCategory: (name: string, parentId: number | null = null) => invoke<number>("create_category", { name, parentId }),
+  renameCategory: (id: number, name: string) => invoke<void>("rename_category", { id, name }),
+  /** Moves a category inside another, or to the top level with `parentId` null. */
+  moveCategory: (id: number, parentId: number | null) => invoke<void>("move_category", { id, parentId }),
+  /** Its albums and the categories inside it move up a level. */
+  deleteCategory: (id: number) => invoke<void>("delete_category", { id }),
+  /** `categoryId` null takes the albums out of their category. */
+  setAlbumCategory: (albumIds: number[], categoryId: number | null) => invoke<void>("set_album_category", { albumIds, categoryId }),
+  /** Pins an album or category to the sidebar's shortcuts, or unpins it. */
+  setShortcut: (kind: "album" | "category", id: number, pinned: boolean) => invoke<void>("set_shortcut", { kind, id, pinned }),
   listSections: (albumId: number) => invoke<Section[]>("list_sections", { albumId }),
   /** Reuses the section with that name (any case) in `parentId` (the top with null), else adds
    * one. A section holding photos hands them to an "Other" sub-section when it gets its first. */

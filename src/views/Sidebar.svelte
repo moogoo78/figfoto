@@ -5,7 +5,7 @@
   import { basename } from "../lib/format";
   import { store } from "../lib/store.svelte";
   import Wordmark from "../lib/Wordmark.svelte";
-  import type { Album, Topic, View } from "../lib/types";
+  import type { Album, Category, View } from "../lib/types";
 
   /** Shortcut album that dragged photos would be added to. */
   let dropTarget = $state<number | null>(null);
@@ -14,12 +14,12 @@
 
   const is = (v: View) => JSON.stringify(v) === JSON.stringify(store.view);
 
-  /** Pinned albums and topics, in the order they were pinned. */
+  /** Pinned albums and categories, in the order they were pinned. */
   const shortcuts = $derived(
     [
-      ...store.albums.filter((a) => a.shortcut != null).map((album) => ({ order: album.shortcut!, album, topic: null })),
-      ...store.topics.filter((tp) => tp.shortcut != null).map((topic) => ({ order: topic.shortcut!, album: null, topic })),
-    ].sort((x, y) => x.order - y.order) as { order: number; album: Album | null; topic: Topic | null }[],
+      ...store.albums.filter((a) => a.shortcut != null).map((album) => ({ order: album.shortcut!, album, category: null })),
+      ...store.categories.filter((c) => c.shortcut != null).map((category) => ({ order: category.shortcut!, album: null, category })),
+    ].sort((x, y) => x.order - y.order) as { order: number; album: Album | null; category: Category | null }[],
   );
 
   function drop(e: DragEvent, albumId: number) {
@@ -81,7 +81,7 @@
 
   <div class="section">
     <div class="heading">{t("Shortcuts")}</div>
-    {#each shortcuts as sc (sc.album ? `a${sc.album.id}` : `t${sc.topic?.id}`)}
+    {#each shortcuts as sc (sc.album ? `a${sc.album.id}` : `c${sc.category?.id}`)}
       {#if sc.album}
         {@const a = sc.album}
         <div class="item album" class:active={is({ kind: "album", id: a.id })} class:drop={dropTarget === a.id}
@@ -103,22 +103,23 @@
             store.mutate(() => api.setShortcut("album", a.id, false));
           }}>×</button>
         </div>
-      {:else if sc.topic}
-        {@const tp = sc.topic}
-        <div class="item topic" class:active={is({ kind: "topic", id: tp.id })} role="button" tabindex="0"
-          onclick={() => store.setView({ kind: "topic", id: tp.id })}
-          onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "topic", id: tp.id })}>
-          {#if tp.cover}<img src={src(tp.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
-          <span class="name">{tp.name}</span>
-          <small>{t("{n} album(s)", { n: tp.albums })}</small>
+      {:else if sc.category}
+        {@const c = sc.category}
+        <div class="item category" class:active={is({ kind: "category", id: c.id })} role="button" tabindex="0"
+          title={store.categoryLabel(c.id)}
+          onclick={() => store.setView({ kind: "category", id: c.id })}
+          onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "category", id: c.id })}>
+          {#if c.cover}<img src={src(c.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
+          <span class="name">{c.name}</span>
+          <small>{t("{n} album(s)", { n: store.albumsUnder(c.id).length })}</small>
           <button class="icon del" title={t("Remove from shortcuts")} onclick={(e) => {
             e.stopPropagation();
-            store.mutate(() => api.setShortcut("topic", tp.id, false));
+            store.mutate(() => api.setShortcut("category", c.id, false));
           }}>×</button>
         </div>
       {/if}
     {:else}
-      <p class="hint">{t("Pin albums or topics with ☆ to keep them here.")}</p>
+      <p class="hint">{t("Pin albums or categories with ☆ to keep them here.")}</p>
     {/each}
   </div>
 

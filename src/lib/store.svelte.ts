@@ -2,7 +2,8 @@ import { SvelteSet } from "svelte/reactivity";
 import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
-import type { Album, Counts, Filter, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Section, Sort, Tag, Topic, View } from "./types";
+import type { FolderPreset } from "./folderPlan";
+import type { Album, Counts, Filter, FolderRole, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Section, Sort, Tag, Category, View } from "./types";
 
 interface Toast {
   id: number;
@@ -22,7 +23,7 @@ class Store {
 
   tags = $state.raw<Tag[]>([]);
   albums = $state.raw<Album[]>([]);
-  topics = $state.raw<Topic[]>([]);
+  categories = $state.raw<Category[]>([]);
   /** Sections of the album being viewed. */
   sections = $state.raw<Section[]>([]);
   cameras = $state.raw<string[]>([]);
@@ -40,7 +41,7 @@ class Store {
 
   importOpen = $state(false);
   /** Source folder to prefill when the import dialog opens. */
-  importPreset = $state<{ dir: string; folderAlbums: boolean; folderSections: boolean; singleAlbum: boolean } | null>(null);
+  importPreset = $state<{ dir: string; folderAlbums: boolean; preset: FolderPreset; plan: Record<string, FolderRole> | null } | null>(null);
   progress = $state.raw<ImportProgress | null>(null);
   toasts = $state<Toast[]>([]);
   /** Mark whose batch is running, with copy progress. */
@@ -108,8 +109,9 @@ class Store {
     }
   }
 
-  openImport(dir = "", folderAlbums = false, folderSections = false, singleAlbum = false) {
-    this.importPreset = dir ? { dir, folderAlbums, folderSections, singleAlbum } : null;
+  /** Opens the Add photos dialog; with `dir`, prefilled to add that folder again the same way. */
+  openImport(dir = "", folderAlbums = false, preset: FolderPreset = "one", plan: Record<string, FolderRole> | null = null) {
+    this.importPreset = dir ? { dir, folderAlbums, preset, plan } : null;
     this.importOpen = true;
   }
 
@@ -141,7 +143,7 @@ class Store {
   }
 
   async refreshMeta() {
-    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes, topics] = await Promise.all([
+    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes, categories] = await Promise.all([
       api.listTags(),
       api.listAlbums(),
       api.listCameras(),
@@ -151,7 +153,7 @@ class Store {
       api.listSources(),
       api.listLenses(),
       api.listSettingsNotes(),
-      api.listTopics(),
+      api.listCategories(),
     ]);
     this.marks = marks;
     this.sources = sources;
@@ -160,7 +162,7 @@ class Store {
     this.imports = imports;
     this.tags = tags;
     this.albums = albums;
-    this.topics = topics;
+    this.categories = categories;
     this.cameras = cameras;
     this.counts = counts;
     await this.#loadSections();
@@ -168,7 +170,7 @@ class Store {
     const v = this.view;
     if (
       (v.kind === "album" && !albums.some((a) => a.id === v.id)) ||
-      (v.kind === "topic" && !topics.some((tp) => tp.id === v.id)) ||
+      (v.kind === "category" && !categories.some((c) => c.id === v.id)) ||
       (v.kind === "tag" && !tags.some((tag) => tag.id === v.id)) ||
       (v.kind === "import" && !imports.some((i) => i.id === v.id))
     ) {
@@ -190,11 +192,71 @@ class Store {
     await this.refreshMeta().catch(() => {});
   }
 
-  /** Albums grouped by topic, topics by name, then the albums with no topic (`topic` null).
-   * Empty topics are included unless `skipEmpty`. */
-  albumsByTopic(skipEmpty = false): { topic: Topic | null; albums: Album[] }[] {
-    const groups = this.topics.map((topic) => ({ topic: topic as Topic | null, albums: this.albums.filter((a) => a.topicId === topic.id) }));
-    groups.push({ topic: null, albums: this.albums.filter((a) => a.topicId == null || !this.topics.some((tp) => tp.id === a.topicId)) });
+  /** Every category, each followed by the ones inside it (by name), with its depth. */
+  categoryTree(): { category: Category; depth: number }[] {
+    const out: { category: Category; depth: number }[] = [];
+    const known = new Set(this.categories.map((c) => c.id));
+    const walk = (parentId: number | null, depth: number) => {
+      for (const category of this.categories) {
+        // A category whose parent is gone shows at the top level.
+        const parent = category.parentId != null && known.has(category.parentId) ? category.parentId : null;
+        if (parent !== parentId) continue;
+        out.push({ category, depth });
+        walk(category.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }
+
+  /** The categories from the top down to `id`, `id` included. */
+  categoryPath(id: number | null): Category[] {
+    const path: Category[] = [];
+    for (let c = this.categories.find((x) => x.id === id); c && !path.includes(c); c = this.categories.find((x) => x.id === c!.parentId)) {
+      path.unshift(c);
+    }
+    return path;
+  }
+
+  /** Ids of the category and every category inside it, at any depth. */
+  categoryAndInside(id: number): Set<number> {
+    const ids = new Set([id]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const c of this.categories) {
+        if (c.parentId != null && ids.has(c.parentId) && !ids.has(c.id)) {
+          ids.add(c.id);
+          grew = true;
+        }
+      }
+    }
+    return ids;
+  }
+
+  /** Albums in the category and every category inside it. */
+  albumsUnder(id: number): Album[] {
+    const ids = this.categoryAndInside(id);
+    return this.albums.filter((a) => a.categoryId != null && ids.has(a.categoryId));
+  }
+
+  /** "Travel › Japan" */
+  categoryLabel(id: number | null): string {
+    return this.categoryPath(id).map((c) => c.name).join(" › ");
+  }
+
+  /** Albums grouped by category, in tree order, then the albums in no category (`category`
+   * null). Empty categories are included unless `skipEmpty`. */
+  albumsByCategory(skipEmpty = false): { category: Category | null; depth: number; albums: Album[] }[] {
+    const groups = this.categoryTree().map(({ category, depth }) => ({
+      category: category as Category | null,
+      depth,
+      albums: this.albums.filter((a) => a.categoryId === category.id),
+    }));
+    groups.push({
+      category: null,
+      depth: 0,
+      albums: this.albums.filter((a) => a.categoryId == null || !this.categories.some((c) => c.id === a.categoryId)),
+    });
     return skipEmpty ? groups.filter((g) => g.albums.length) : groups;
   }
 

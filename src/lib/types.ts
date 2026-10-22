@@ -61,8 +61,8 @@ export interface Album {
   createdAt: string;
   count: number;
   cover: string | null;
-  /** The topic the album is filed under, if any. */
-  topicId: number | null;
+  /** The category the album is filed in, if any. */
+  categoryId: number | null;
   /** Number of sections the album is split into. */
   sections: number;
   /** How the sections are ordered: by their first photo, or by name. */
@@ -71,7 +71,7 @@ export interface Album {
   shortcut: number | null;
 }
 
-export type SectionKind = "date" | "topic";
+export type SectionKind = "date" | "name";
 
 /** A named part of an album, like "Kyoto" in "2019 Japan", or "Day 2" inside Kyoto. */
 export interface Section {
@@ -87,11 +87,16 @@ export interface Section {
   count: number;
 }
 
-/** A group of albums, like "Travel" or "Family". */
-export interface Topic {
+/** A box for albums and other categories, like "Travel" or "Travel › Japan". */
+export interface Category {
   id: number;
   name: string;
+  /** The category it is inside, if any. */
+  parentId: number | null;
+  /** Albums directly in it. */
   albums: number;
+  /** Categories directly inside it. */
+  categories: number;
   cover: string | null;
   /** When pinned to the sidebar: its place among the shortcuts (lower first). */
   shortcut: number | null;
@@ -151,6 +156,23 @@ export interface Filter {
 /** "section" only applies inside an album (elsewhere it sorts oldest first). */
 export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "section";
 
+/** What a folder becomes when adding organized folders: a category (albums below it are
+ * filed in it), an album, a section of the album above, part of the folder above ("parent"),
+ * or not added ("skip"). */
+export type FolderRole = "category" | "album" | "section" | "parent" | "skip";
+
+/** A folder holding photos (directly or below), for planning an organized-folders import. */
+export interface FolderInfo {
+  /** Path inside the chosen folder, "/"-separated; "" for the chosen folder itself. */
+  path: string;
+  name: string;
+  depth: number;
+  /** Photos directly in it. */
+  photos: number;
+  /** Photos in it and every folder below. */
+  total: number;
+}
+
 export interface ImportRecord {
   id: number;
   sourceDir: string;
@@ -169,6 +191,8 @@ export interface ImportRecord {
   folderSections: boolean;
   /** The source folder itself was the one album, its subfolders sections. */
   singleAlbum: boolean;
+  /** What each folder became (path inside the source folder → role), for adding it again. */
+  folderPlan: Record<string, FolderRole> | null;
   /** Photos from this import still in the library. */
   photoCount: number;
   cover: string | null;
@@ -200,7 +224,7 @@ export type View =
   | { kind: "albums" }
   | { kind: "favorites" }
   | { kind: "album"; id: number }
-  | { kind: "topic"; id: number }
+  | { kind: "category"; id: number }
   | { kind: "tag"; id: number }
   | { kind: "imports" }
   | { kind: "import"; id: number }

@@ -30,11 +30,11 @@
 
             - photo already in library → added to album, no second copy
 
-            - option: subfolders → nested sections (Kyoto › Day 2)
+            - folder tree before adding: each folder → category / album / section (inside the one above) / into folder above / skip, with where its photos will go
 
-               - the chosen folder is one album (pick 2019 Japan → one album)
+               - presets: one album · an album per folder inside · every folder an album · categories and albums (folders with folders inside → categories)
 
-               - or each folder inside it is an album (pick Travel → 2019 Japan, 2020 Taipei…)
+               - Add again reuses the choices
 
       - skip rules
 
@@ -120,19 +120,23 @@
 
       - album
 
-         - Albums page (below All photos): topics with album tiles; new / rename / delete albums and topics
+         - Albums page (below All photos): category tree with album tiles; new / rename / delete albums and categories
 
-         - sidebar shortcuts: albums and topics pinned with ☆, in the order pinned; drop photos on a shortcut album
+         - sidebar shortcuts: albums and categories pinned with ☆, in the order pinned; drop photos on a shortcut album
 
-         - topic (Travel, Family…; one level, one per album)
+         - category (Travel › Japan…; holds albums and categories, nest to any depth; an album in one)
 
-            - file an album: drag onto a topic on the Albums page, or pick on the album page
+            - file an album: drag onto a category on the Albums page, or pick on the album page
 
-            - topic page: album cover tiles
+            - nest: drag a category onto another, or ＋ on a category; not inside itself
 
-            - album pickers grouped by topic
+            - delete: its albums and categories move up a level
 
-         - \*topic from added folders (my-fotos/Travel/2019 Kyoto)
+            - category page: path, category and album cover tiles, new category inside
+
+            - album pickers grouped by category path
+
+         - category from added folders (my-fotos/Travel/2019 Kyoto); an album already filed stays put
 
          - section (Kyoto, Nara…; nest to any depth: Kyoto › Day 2 › Morning; a photo in one per album)
 
@@ -140,7 +144,7 @@
 
             - photos only in sections without sub-sections; a section's own photos move to an "Other" sub-section when it gets its first
 
-            - two kinds per album, at every level: by date (sections in the order their photos were taken) or by topic (by name); added subfolders → by topic
+            - two kinds per album, at every level: by date (sections in the order their photos were taken) or by name; added subfolders → by name
 
             - album page: headings in that order, "No section" last
 
@@ -234,15 +238,15 @@
 
       - desktop is the master (originals + full library)
 
-      - online copy: web-size images + albums / topics / photo info
+      - online copy: web-size images + albums / categories / photo info
 
          - without private notes, without originals
 
-      - mark album / topic "Online", then Sync (only what changed goes up)
+      - mark album / category "Online", then Sync (only what changed goes up)
 
       - organize online while the computer is off
 
-         - albums, topics, covers, ratings, descriptions
+         - albums, categories, covers, ratings, descriptions
 
          - phone upload → online Inbox
 
@@ -260,6 +264,6 @@
 
          - real clash → "Needs review" list
 
-      - needs: stable ids (photo hash, album / topic UUID) + updated_at
+      - needs: stable ids (photo hash, album / category UUID) + updated_at
 
       - hosting: own Docker server or Cloudflare (static site = read-only)

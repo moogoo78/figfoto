@@ -8,7 +8,7 @@
   import Library from "./views/Library.svelte";
   import Marks from "./views/Marks.svelte";
   import Lenses from "./views/Lenses.svelte";
-  import TopicView from "./views/TopicView.svelte";
+  import CategoryView from "./views/CategoryView.svelte";
   import AlbumsView from "./views/AlbumsView.svelte";
   import Sidebar from "./views/Sidebar.svelte";
   import Welcome from "./views/Welcome.svelte";
@@ -38,8 +38,8 @@
             <Backup />
           {:else if store.view.kind === "albums"}
             <AlbumsView />
-          {:else if store.view.kind === "topic"}
-            <TopicView id={store.view.id} />
+          {:else if store.view.kind === "category"}
+            <CategoryView id={store.view.id} />
           {:else}
             <Library />
           {/if}

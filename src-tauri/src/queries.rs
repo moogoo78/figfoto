@@ -402,11 +402,11 @@ pub struct Album {
     pub created_at: String,
     pub count: i64,
     pub cover: Option<String>,
-    /// The topic the album is filed under, if any.
-    pub topic_id: Option<i64>,
+    /// The category the album is filed in, if any.
+    pub category_id: Option<i64>,
     /// Number of sections the album is split into.
     pub sections: i64,
-    /// How the sections are ordered: "date" (by their first photo) or "topic" (by name).
+    /// How the sections are ordered: "date" (by their first photo) or "name".
     pub section_kind: String,
     /// When pinned to the sidebar: its place among the shortcuts (lower first).
     pub shortcut: Option<i64>,
@@ -548,7 +548,7 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
               (SELECT p.hash FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
                  WHERE ap.album_id = a.id AND p.trashed_at IS NULL
                  ORDER BY ap.position, p.taken_at LIMIT 1)),
-            a.topic_id,
+            a.category_id,
             (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id),
             a.section_kind,
             (SELECT id FROM shortcuts WHERE album_id = a.id)
@@ -568,7 +568,7 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
             created_at: r.get(2)?,
             count: r.get(3)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
-            topic_id: r.get(5)?,
+            category_id: r.get(5)?,
             sections: r.get(6)?,
             section_kind: r.get(7)?,
             shortcut: r.get(8)?,
@@ -577,51 +577,78 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// A group of albums, like "Travel" or "Family".
+/// A box for albums and other categories, like "Travel" or "Travel › Japan".
 #[derive(Debug, Clone, Serialize)]
-pub struct Topic {
+#[serde(rename_all = "camelCase")]
+pub struct Category {
     pub id: i64,
     pub name: String,
-    /// Number of albums in the topic.
+    /// The category it is inside, if any.
+    pub parent_id: Option<i64>,
+    /// Number of albums directly in the category.
     pub albums: i64,
-    /// Cover of the first album (by name) that has one.
+    /// Number of categories directly inside it.
+    pub categories: i64,
+    /// Cover of its first album that has one, else of the first category inside that has one.
     pub cover: Option<String>,
     /// When pinned to the sidebar: its place among the shortcuts (lower first).
     pub shortcut: Option<i64>,
 }
 
-pub fn list_topics(lib: &Library) -> Result<Vec<Topic>> {
-    let topics: Vec<(i64, String, Option<i64>)> = {
+/// Every category, by name.
+pub fn list_categories(lib: &Library) -> Result<Vec<Category>> {
+    let rows: Vec<(i64, String, Option<i64>, Option<i64>)> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.name, (SELECT id FROM shortcuts WHERE topic_id = t.id) FROM topics t ORDER BY t.name COLLATE NOCASE",
+            "SELECT c.id, c.name, c.parent_id, (SELECT id FROM shortcuts WHERE category_id = c.id)
+             FROM categories c ORDER BY c.name COLLATE NOCASE",
         )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
     let albums = list_albums(lib)?;
-    Ok(topics
-        .into_iter()
-        .map(|(id, name, shortcut)| {
-            let mine = albums.iter().filter(|a| a.topic_id == Some(id));
-            Topic {
-                id,
-                name,
+    let mut out: Vec<Category> = rows
+        .iter()
+        .map(|(id, name, parent_id, shortcut)| {
+            let mine = albums.iter().filter(|a| a.category_id == Some(*id));
+            Category {
+                id: *id,
+                name: name.clone(),
+                parent_id: *parent_id,
                 albums: mine.clone().count() as i64,
+                categories: rows.iter().filter(|r| r.2 == Some(*id)).count() as i64,
                 cover: mine.filter_map(|a| a.cover.clone()).next(),
-                shortcut,
+                shortcut: *shortcut,
             }
         })
-        .collect())
+        .collect();
+    // A category without albums of its own takes a cover from the ones inside it, deepest first.
+    for _ in 0..out.len() {
+        let mut changed = false;
+        for i in 0..out.len() {
+            if out[i].cover.is_some() {
+                continue;
+            }
+            let id = out[i].id;
+            if let Some(cover) = out.iter().find(|c| c.parent_id == Some(id) && c.cover.is_some()).and_then(|c| c.cover.clone()) {
+                out[i].cover = Some(cover);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    Ok(out)
 }
 
-/// Pins an album (`kind` "album") or topic ("topic") to the sidebar, after the ones already
-/// there, or unpins it.
+/// Pins an album (`kind` "album") or category ("category") to the sidebar, after the ones
+/// already there, or unpins it.
 pub fn set_shortcut(lib: &Library, kind: &str, id: i64, pinned: bool) -> Result<()> {
     let column = match kind {
         "album" => "album_id",
-        "topic" => "topic_id",
-        _ => return Err(AppError::msg("a shortcut is to an album or a topic")),
+        "category" => "category_id",
+        _ => return Err(AppError::msg("a shortcut is to an album or a category")),
     };
     let conn = lib.conn();
     if pinned {
@@ -632,43 +659,79 @@ pub fn set_shortcut(lib: &Library, kind: &str, id: i64, pinned: bool) -> Result<
     Ok(())
 }
 
-/// The topic named `name` (ignoring case), created if there is none.
-pub fn create_topic(lib: &Library, name: &str) -> Result<i64> {
+/// The category named `name` (ignoring case) inside `parent` (top level with `None`),
+/// created if there is none.
+pub fn create_category(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(AppError::msg("topic name is empty"));
+        return Err(AppError::msg("category name is empty"));
     }
     let conn = lib.conn();
     let existing = conn
-        .query_row("SELECT id FROM topics WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT 1", [name], |r| r.get(0))
+        .query_row(
+            "SELECT id FROM categories WHERE name = ?1 COLLATE NOCASE AND parent_id IS ?2 ORDER BY id LIMIT 1",
+            params![name, parent],
+            |r| r.get(0),
+        )
         .optional()?;
     if let Some(id) = existing {
         return Ok(id);
     }
-    conn.execute("INSERT INTO topics (name, created_at) VALUES (?1, ?2)", params![name, now()])?;
+    conn.execute("INSERT INTO categories (name, parent_id, created_at) VALUES (?1, ?2, ?3)", params![name, parent, now()])?;
     Ok(conn.last_insert_rowid())
 }
 
-pub fn rename_topic(lib: &Library, id: i64, name: &str) -> Result<()> {
+/// The category at `path` (names from the top down), each one created if missing.
+pub fn create_category_path(lib: &Library, path: &[String]) -> Result<Option<i64>> {
+    let mut parent = None;
+    for name in path {
+        parent = Some(create_category(lib, name, parent)?);
+    }
+    Ok(parent)
+}
+
+pub fn rename_category(lib: &Library, id: i64, name: &str) -> Result<()> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(AppError::msg("topic name is empty"));
+        return Err(AppError::msg("category name is empty"));
     }
-    lib.conn().execute("UPDATE topics SET name = ?1 WHERE id = ?2", params![name, id])?;
+    lib.conn().execute("UPDATE categories SET name = ?1 WHERE id = ?2", params![name, id])?;
     Ok(())
 }
 
-/// Deletes a topic; its albums stay and move out of it.
-pub fn delete_topic(lib: &Library, id: i64) -> Result<()> {
-    lib.conn().execute("DELETE FROM topics WHERE id = ?1", [id])?;
+/// Moves a category inside another, or to the top level with `None`. A category can't go
+/// inside itself or one of the categories inside it.
+pub fn move_category(lib: &Library, id: i64, parent: Option<i64>) -> Result<()> {
+    let conn = lib.conn();
+    let mut up = parent;
+    while let Some(p) = up {
+        if p == id {
+            return Err(AppError::msg("a category can't go inside itself"));
+        }
+        up = conn.query_row("SELECT parent_id FROM categories WHERE id = ?1", [p], |r| r.get(0)).optional()?.flatten();
+    }
+    conn.execute("UPDATE categories SET parent_id = ?1 WHERE id = ?2", params![parent, id])?;
     Ok(())
 }
 
-/// Files albums under a topic, or takes them out of their topic with `None`.
-pub fn set_album_topic(lib: &Library, album_ids: &[i64], topic_id: Option<i64>) -> Result<()> {
+/// Deletes a category; its albums and the categories inside it move up to the category above
+/// (or the top level).
+pub fn delete_category(lib: &Library, id: i64) -> Result<()> {
+    let mut conn = lib.conn();
+    let tx = conn.transaction()?;
+    let parent: Option<i64> = tx.query_row("SELECT parent_id FROM categories WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+    tx.execute("UPDATE categories SET parent_id = ?1 WHERE parent_id = ?2", params![parent, id])?;
+    tx.execute("UPDATE albums SET category_id = ?1 WHERE category_id = ?2", params![parent, id])?;
+    tx.execute("DELETE FROM categories WHERE id = ?1", [id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Files albums in a category, or takes them out of their category with `None`.
+pub fn set_album_category(lib: &Library, album_ids: &[i64], category_id: Option<i64>) -> Result<()> {
     lib.conn().execute(
-        &format!("UPDATE albums SET topic_id = ?1 WHERE id IN ({})", id_list(album_ids)),
-        [topic_id],
+        &format!("UPDATE albums SET category_id = ?1 WHERE id IN ({})", id_list(album_ids)),
+        [category_id],
     )?;
     Ok(())
 }
@@ -767,7 +830,7 @@ pub const OTHER_SECTION: &str = "Other";
 
 /// The album's sections as a tree, each followed by the ones inside it. Each level is in
 /// order: by date, the one with the earliest photo (in it or below) first, empty ones last;
-/// by topic, by name.
+/// by name, alphabetically.
 pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
     struct Node {
         id: i64,
@@ -792,7 +855,7 @@ pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
         let rows = stmt.query_map([album_id], |r| {
             Ok(Node { id: r.get(0)?, name: r.get(1)?, parent: r.get(2)?, count: r.get(3)?, first: r.get(4)?, children: vec![] })
         })?;
-        (kind.as_deref() != Some("topic"), rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        (kind.as_deref() != Some("name"), rows.collect::<rusqlite::Result<Vec<_>>>()?)
     };
     let index: HashMap<i64, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
     let mut roots = Vec::new();
@@ -844,9 +907,9 @@ pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
     Ok(out)
 }
 
-/// Sets how the album's sections are ordered: "date" or "topic".
+/// Sets how the album's sections are ordered: "date" or "name".
 pub fn set_section_kind(lib: &Library, album_id: i64, kind: &str) -> Result<()> {
-    if !matches!(kind, "date" | "topic") {
+    if !matches!(kind, "date" | "name") {
         return Err(AppError::msg("unknown section kind"));
     }
     lib.conn().execute("UPDATE albums SET section_kind = ?1 WHERE id = ?2", params![kind, album_id])?;
@@ -1122,6 +1185,8 @@ pub struct ImportRecord {
     pub folder_sections: bool,
     /// The source folder itself was the one album, its subfolders sections.
     pub single_album: bool,
+    /// What each folder became (path inside the source folder -> role), for adding it again.
+    pub folder_plan: Option<HashMap<String, crate::import::FolderRole>>,
     /// Photos from this import still in the library (not trashed).
     pub photo_count: i64,
     pub cover: Option<String>,
@@ -1131,14 +1196,15 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
         "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled, i.folder_albums, i.skipped_deleted, i.folder_sections,
-            i.single_album,
+            i.single_album, i.folder_plan,
             (SELECT COUNT(*) FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL),
             (SELECT p.hash FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL
                ORDER BY p.taken_at LIMIT 1)
          FROM imports i ORDER BY i.id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        let cover: Option<String> = r.get(13)?;
+        let cover: Option<String> = r.get(14)?;
+        let plan: Option<String> = r.get(12)?;
         Ok(ImportRecord {
             id: r.get(0)?,
             source_dir: r.get(1)?,
@@ -1152,7 +1218,8 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
             skipped_deleted: r.get(9)?,
             folder_sections: r.get(10)?,
             single_album: r.get(11)?,
-            photo_count: r.get(12)?,
+            folder_plan: plan.and_then(|p| serde_json::from_str(&p).ok()),
+            photo_count: r.get(13)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
         })
     })?;

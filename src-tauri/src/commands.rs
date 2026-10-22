@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::backup::{self, BackupResult, BackupTarget, VerifyResult};
 use crate::cloud::{self, RcloneStatus};
 use crate::error::{AppError, Result};
-use crate::import::{self, ImportFailure, ImportProgress};
+use crate::import::{self, FolderInfo, FolderRole, ImportFailure, ImportProgress};
 use crate::queries::ImportRecord;
 use crate::library::Library;
 use crate::marks::{self, ActionKind, MarkSlot, RunResult};
@@ -135,8 +136,7 @@ pub async fn start_import(
     src: String,
     source: Option<String>,
     folder_albums: bool,
-    folder_sections: bool,
-    single_album: bool,
+    plan: Option<HashMap<String, FolderRole>>,
     include_deleted: bool,
 ) -> Result<()> {
     let lib = state.lib()?;
@@ -158,7 +158,7 @@ pub async fn start_import(
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, folder_sections, single_album, include_deleted };
+        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, plan: plan.as_ref(), include_deleted };
         let run = || import::run(&lib, Path::new(&src), &opts, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
             .unwrap_or_else(|_| Err(AppError::msg("adding photos crashed")));
@@ -172,6 +172,14 @@ pub async fn start_import(
         }
     });
     Ok(())
+}
+
+/// The folders under `src` that hold photos, for planning an organized-folders import.
+#[tauri::command]
+pub async fn scan_folders(src: String) -> Result<Vec<FolderInfo>> {
+    tauri::async_runtime::spawn_blocking(move || import::scan_folders(Path::new(&src)))
+        .await
+        .map_err(|e| AppError::msg(e.to_string()))?
 }
 
 #[tauri::command]
@@ -288,23 +296,28 @@ pub async fn delete_album(state: State<'_, AppState>, id: i64) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn list_topics(state: State<'_, AppState>) -> Result<Vec<queries::Topic>> {
-    queries::list_topics(&*state.lib()?)
+pub async fn list_categories(state: State<'_, AppState>) -> Result<Vec<queries::Category>> {
+    queries::list_categories(&*state.lib()?)
 }
 
 #[tauri::command]
-pub async fn create_topic(state: State<'_, AppState>, name: String) -> Result<i64> {
-    queries::create_topic(&*state.lib()?, &name)
+pub async fn create_category(state: State<'_, AppState>, name: String, parent_id: Option<i64>) -> Result<i64> {
+    queries::create_category(&*state.lib()?, &name, parent_id)
 }
 
 #[tauri::command]
-pub async fn rename_topic(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
-    queries::rename_topic(&*state.lib()?, id, &name)
+pub async fn rename_category(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
+    queries::rename_category(&*state.lib()?, id, &name)
 }
 
 #[tauri::command]
-pub async fn delete_topic(state: State<'_, AppState>, id: i64) -> Result<()> {
-    queries::delete_topic(&*state.lib()?, id)
+pub async fn move_category(state: State<'_, AppState>, id: i64, parent_id: Option<i64>) -> Result<()> {
+    queries::move_category(&*state.lib()?, id, parent_id)
+}
+
+#[tauri::command]
+pub async fn delete_category(state: State<'_, AppState>, id: i64) -> Result<()> {
+    queries::delete_category(&*state.lib()?, id)
 }
 
 #[tauri::command]
@@ -313,8 +326,8 @@ pub async fn set_shortcut(state: State<'_, AppState>, kind: String, id: i64, pin
 }
 
 #[tauri::command]
-pub async fn set_album_topic(state: State<'_, AppState>, album_ids: Vec<i64>, topic_id: Option<i64>) -> Result<()> {
-    queries::set_album_topic(&*state.lib()?, &album_ids, topic_id)
+pub async fn set_album_category(state: State<'_, AppState>, album_ids: Vec<i64>, category_id: Option<i64>) -> Result<()> {
+    queries::set_album_category(&*state.lib()?, &album_ids, category_id)
 }
 
 #[tauri::command]

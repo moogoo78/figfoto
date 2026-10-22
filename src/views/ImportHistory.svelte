@@ -88,7 +88,7 @@
 
         <div class="actions">
           <button disabled={!imp.photoCount} onclick={() => store.setView({ kind: "import", id: imp.id })}>{t("View photos")}</button>
-          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.folderSections, imp.singleAlbum)} title={t("Add from this folder again; only new files are copied")}>
+          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.singleAlbum ? "one" : imp.folderSections ? "inside" : "every", imp.folderPlan)} title={t("Add from this folder again; only new files are copied")}>
             {t("Add again")}
           </button>
         </div>

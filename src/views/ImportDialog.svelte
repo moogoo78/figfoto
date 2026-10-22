@@ -5,16 +5,22 @@
   import { errorText } from "../lib/format";
   import SourceInput from "../lib/SourceInput.svelte";
   import { store } from "../lib/store.svelte";
+  import { place, presetPlan, type FolderPreset } from "../lib/folderPlan";
+  import type { FolderInfo, FolderRole } from "../lib/types";
 
   let source = $state("");
   /** Optional label for where these photos came from (e.g. LINE). */
   let origin = $state("");
-  /** Organized folders: each folder holding photos becomes an album. */
+  /** Organized folders: each folder becomes a category, an album, a section, part of the folder above, or is skipped. */
   let folderAlbums = $state(false);
-  /** With folderAlbums: top folders become albums, deeper ones (nested) sections of them. */
-  let folderSections = $state(false);
-  /** With folderSections: the chosen folder itself is the one album (else each folder in it is one). */
-  let singleAlbum = $state(true);
+  /** The chosen folder's folders that hold photos (organized folders), once scanned. */
+  let folders = $state.raw<FolderInfo[] | null>(null);
+  let scanning = $state(false);
+  let preset = $state<FolderPreset>("one");
+  /** What each folder becomes, by path. */
+  let roles = $state<Record<string, FolderRole>>({});
+  /** Choices saved by an earlier import of the same folder, applied over the preset once scanned. */
+  let savedPlan: Record<string, FolderRole> | null = null;
   /** Also bring back photos that were deleted from the library (trash emptied) before. */
   let includeDeleted = $state(false);
   let started = $state(false);
@@ -24,11 +30,57 @@
     if (store.importOpen && store.importPreset && !started) {
       source = store.importPreset.dir;
       folderAlbums = store.importPreset.folderAlbums;
-      folderSections = store.importPreset.folderSections;
-      singleAlbum = store.importPreset.singleAlbum;
+      preset = store.importPreset.preset;
+      savedPlan = store.importPreset.plan;
       store.importPreset = null;
     }
   });
+
+  // Organized folders: scan the chosen folder for its folders once both are set.
+  let scannedFor = "";
+  $effect(() => {
+    if (!folderAlbums || !source || source === scannedFor) return;
+    const dir = (scannedFor = source);
+    folders = null;
+    scanning = true;
+    api.scanFolders(dir).then(
+      (found) => {
+        if (dir !== source) return;
+        folders = found;
+        roles = { ...presetPlan(found, preset), ...(savedPlan ?? {}) };
+        savedPlan = null;
+        scanning = false;
+      },
+      (e) => {
+        scanning = false;
+        scannedFor = "";
+        store.toast(errorText(e), true);
+      },
+    );
+  });
+
+  function applyPreset(p: FolderPreset) {
+    preset = p;
+    if (folders) roles = presetPlan(folders, p);
+  }
+
+  const byPath = $derived(new Map((folders ?? []).map((f) => [f.path, f])));
+  const places = $derived((folders ?? []).map((f) => place(f, byPath, roles)));
+  /** Categories and albums the plan makes, and photos it leaves out. */
+  const summary = $derived.by(() => {
+    const albums = new Set<string>();
+    const categories = new Set<string>();
+    let skipped = 0;
+    places.forEach((pl, i) => {
+      if (pl.kind === "in") albums.add(pl.album);
+      if (pl.kind === "skip") skipped += folders![i].photos;
+      else if (roles[folders![i].path] === "category") categories.add([...pl.categories].join("/"));
+    });
+    return { albums: albums.size, categories: categories.size, skipped };
+  });
+
+  /** "Travel / Japan / " before an album, for where photos go. */
+  const inCategories = (categories: string[]) => categories.map((c) => c + " / ").join("");
 
   const p = $derived(started ? store.progress : null);
   const running = $derived(started && !p?.finished);
@@ -42,7 +94,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin, folderAlbums, folderAlbums && folderSections, singleAlbum, includeDeleted);
+      await api.startImport(source, origin, folderAlbums, folderAlbums ? $state.snapshot(roles) : null, includeDeleted);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -53,6 +105,9 @@
     if (running) return;
     started = false;
     includeDeleted = false;
+    source = "";
+    scannedFor = "";
+    folders = null;
     store.importOpen = false;
   }
 </script>
@@ -61,7 +116,7 @@
 
 {#if store.importOpen}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label={t("Add photos")}>
+    <div class="dialog" class:wide={folderAlbums && !!folders?.length && !started} role="dialog" aria-modal="true" aria-label={t("Add photos")}>
       <h2>{t("Add photos")}</h2>
 
       {#if !started}
@@ -74,36 +129,9 @@
           <label class:on={folderAlbums}>
             <input type="radio" name="kind" value={true} bind:group={folderAlbums} />
             <strong>{t("Organized folders")}</strong>
-            <small>{t("Each folder becomes an album")}</small>
+            <small>{t("Folders become categories, albums or sections")}</small>
           </label>
         </div>
-        {#if folderAlbums}
-          <p class="hint">
-            {#if folderSections && singleAlbum}
-              {t("The chosen folder becomes one album named after it, and every folder inside it becomes a section, nested like the folders (2019 Japan / Kyoto / Day 2 → album “2019 Japan”, section Kyoto › Day 2). Photos right in the chosen folder are in the album, in no section. Photos already in the library are added without a second copy.")}
-            {:else if folderSections}
-              {t("Only the folders right inside the chosen folder become albums, named after them. Every folder deeper down becomes a section of that album, nested like the folders (2019 Japan / Kyoto / Day 2 → album “2019 Japan”, section Kyoto › Day 2). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.")}
-            {:else}
-              {t("Each folder that holds photos, including the chosen folder itself, becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy.")}
-            {/if}
-          </p>
-          <label class="check">
-            <input type="checkbox" bind:checked={folderSections} />
-            <span>{t("Subfolders become sections")} <small>{t("(Kyoto/Day 2 → section Kyoto › Day 2)")}</small></span>
-          </label>
-          {#if folderSections}
-            <div class="albums" role="radiogroup" aria-label={t("Albums")}>
-              <label class="check">
-                <input type="radio" name="albums" value={true} bind:group={singleAlbum} />
-                <span>{t("The chosen folder is one album")} <small>{t("(pick “2019 Japan”: one album)")}</small></span>
-              </label>
-              <label class="check">
-                <input type="radio" name="albums" value={false} bind:group={singleAlbum} />
-                <span>{t("Each folder inside it is an album")} <small>{t("(pick “Travel”: albums “2019 Japan”, “2020 Taipei”…)")}</small></span>
-              </label>
-            </div>
-          {/if}
-        {/if}
         <p class="hint">
           {t("Photos are copied into your library under")} <code>originals/YYYY/MM/DD</code>{t(". The source folder is not changed. Files already in the library are skipped.")}
         </p>
@@ -111,6 +139,54 @@
           <input readonly value={source} placeholder={t("No folder selected")} onclick={pick} />
           <button onclick={pick}>{t("Browse…")}</button>
         </div>
+        {#if folderAlbums && source}
+          <div class="plan">
+            <div class="presets">
+              <span>{t("Make:")}</span>
+              {#each [["one", t("One album")], ["inside", t("An album per folder inside")], ["every", t("Every folder an album")], ["categories", t("Categories and albums")]] as [value, label] (value)}
+                <button class:active={preset === value} onclick={() => applyPreset(value as FolderPreset)}>{label}</button>
+              {/each}
+            </div>
+            {#if scanning}
+              <p class="hint">{t("Looking through the folders…")}</p>
+            {:else if folders && !folders.length}
+              <p class="hint">{t("No photos in this folder.")}</p>
+            {:else if folders}
+              <p class="hint">{t("Choose what each folder becomes. A section goes inside the album (or section) above it; albums below a category are filed in it.")}</p>
+              <div class="tree">
+                {#each folders as f, i (f.path)}
+                  {@const pl = places[i]}
+                  {@const under = f.depth > 0 && pl.kind === "skip" && roles[f.path] !== "skip"}
+                  <div class="folder" class:off={pl.kind === "skip"}>
+                    <span class="fname" style:padding-left="{f.depth * 18}px" title={f.path || source}>{f.name}</span>
+                    <small title={t("{n} photos here, {m} with the folders inside", { n: f.photos, m: f.total })}>{f.total}</small>
+                    <select bind:value={roles[f.path]} disabled={under}>
+                      <option value="category">{t("Category")}</option>
+                      <option value="album">{t("Album")}</option>
+                      {#if f.depth > 0}<option value="section">{t("Section")}</option>{/if}
+                      <option value="parent">{f.depth > 0 ? t("Into folder above") : t("No album")}</option>
+                      {#if f.depth > 0}<option value="skip">{t("Skip")}</option>{/if}
+                    </select>
+                    <span class="dest">
+                      <!-- Only folders that hold photos themselves say where those go. -->
+                      {#if pl.kind === "skip"}{t("not added")}
+                      {:else if f.photos && pl.kind === "loose"}→ {inCategories(pl.categories)}{t("no album")}
+                      {:else if f.photos && pl.kind === "in"}→ {inCategories(pl.categories)}{[pl.album, ...pl.sections].join(" › ")}{/if}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+              <p class="hint">
+                {[
+                  ...(summary.categories ? [t("{n} category(ies)", { n: summary.categories })] : []),
+                  t("{n} album(s)", { n: summary.albums }),
+                  ...(summary.skipped ? [t("{n} photos skipped", { n: summary.skipped })] : []),
+                  t("Photos already in the library are added to their album without a second copy."),
+                ].join(" · ")}
+              </p>
+            {/if}
+          </div>
+        {/if}
         <label class="origin">
           <span>{t("Source")} <small>{t("(optional — e.g. photos saved from LINE or Facebook)")}</small></span>
           <SourceInput bind:value={origin} submitOnEnter={false} placeholder={t("Camera / phone detected automatically")} />
@@ -121,7 +197,7 @@
         </label>
         <div class="buttons">
           <button onclick={close}>{t("Cancel")}</button>
-          <button class="primary" disabled={!source} onclick={start}>{t("Add photos")}</button>
+          <button class="primary" disabled={!source || (folderAlbums && !folders?.length)} onclick={start}>{t("Add photos")}</button>
         </div>
       {:else}
         <div class="bar"><div style:width="{pct}%"></div></div>
@@ -156,7 +232,7 @@
           {#if running}
             <button onclick={() => api.cancelImport()}>{t("Stop")}</button>
           {:else}
-            <button onclick={() => { started = false; source = ""; origin = ""; includeDeleted = false; }}>{t("Add more")}</button>
+            <button onclick={() => { started = false; source = ""; scannedFor = ""; folders = null; origin = ""; includeDeleted = false; }}>{t("Add more")}</button>
             <button class="primary" onclick={close}>{t("Done")}</button>
           {/if}
         </div>
@@ -185,8 +261,18 @@
   .origin :global(input) { width: 100%; }
   .check { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; font-size: 13px; cursor: pointer; }
   .check small { color: var(--muted); }
-  .albums { margin-left: 22px; }
-  .albums .check { margin-top: 8px; }
+  .dialog.wide { width: min(820px, calc(100vw - 32px)); }
+  .plan { margin-top: 12px; }
+  .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+  .presets span { color: var(--muted); }
+  .tree { max-height: 40vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px 0; }
+  .folder { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 13px; }
+  .folder:hover { background: var(--hover); }
+  .folder.off .fname, .folder.off small { color: var(--muted); text-decoration: line-through; }
+  .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder small { color: var(--muted); min-width: 3ch; text-align: right; }
+  .folder select { height: 28px; flex-shrink: 0; width: 150px; }
+  .dest { width: 34%; flex-shrink: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
   .bar { height: 8px; border-radius: 4px; background: var(--cell); overflow: hidden; }
   .bar div { height: 100%; background: var(--accent); transition: width 0.2s; }

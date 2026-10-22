@@ -246,6 +246,21 @@ CREATE TABLE shortcuts (
     CHECK ((album_id IS NULL) != (topic_id IS NULL))
 );
 "#,
+    // v21: what each folder became in an organized-folders import (JSON: path -> role), so
+    // adding the folder again can start from the same choices.
+    r#"
+ALTER TABLE imports ADD COLUMN folder_plan TEXT;
+"#,
+    // v22: topics become categories, which nest (Travel › Japan); a category holds albums and
+    // other categories. Sections ordered by topic are now said to be ordered by name.
+    r#"
+ALTER TABLE topics RENAME TO categories;
+ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
+CREATE INDEX idx_categories_parent ON categories(parent_id);
+ALTER TABLE albums RENAME COLUMN topic_id TO category_id;
+ALTER TABLE shortcuts RENAME COLUMN topic_id TO category_id;
+UPDATE albums SET section_kind = 'name' WHERE section_kind = 'topic';
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

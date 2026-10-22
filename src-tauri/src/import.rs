@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local, NaiveDateTime};
 use rayon::prelude::*;
 use rusqlite::{params, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::error::{AppError, Result};
@@ -58,20 +58,128 @@ pub struct ImportFailure {
 pub struct ImportOptions<'a> {
     /// Labels where the photos came from (e.g. "LINE").
     pub source: Option<&'a str>,
-    /// Every folder that directly holds photos, the source folder included, becomes an album
-    /// named after it (an existing album of that name is reused); photos already in the
-    /// library are added to it too.
+    /// Folders become albums (an existing album of the same name is reused); photos already in
+    /// the library are added to them too. Without a `plan`, every folder that directly holds
+    /// photos, the source folder included, becomes an album named after it.
     pub folder_albums: bool,
-    /// With `folder_albums`: only the folders right under the source folder become albums;
-    /// photos in deeper folders go into nested sections of that album named after the rest of the
-    /// path (Kyoto › Day 1). Photos directly in the source folder still go to an album named
-    /// after it.
-    pub folder_sections: bool,
-    /// With `folder_sections`: the source folder itself is the one album instead, and every
-    /// folder inside it a (nested) section.
-    pub single_album: bool,
+    /// With `folder_albums`: what each folder becomes, keyed by its path inside the source
+    /// folder ("" for the source folder itself, "Kyoto/Day 2" below it). Folders not listed
+    /// are [`FolderRole::Parent`].
+    pub plan: Option<&'a HashMap<String, FolderRole>>,
     /// Import photos even if they were deleted from the library before.
     pub include_deleted: bool,
+}
+
+/// What a folder becomes when adding organized folders with a plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderRole {
+    /// An album named after the folder.
+    Album,
+    /// A section named after the folder, inside the album or section of the folder above
+    /// (an album when there is none above).
+    Section,
+    /// A category named after the folder, inside the category of the folder above; albums
+    /// below it are filed in it. Its own photos go in no album.
+    Category,
+    /// Its photos go where the folder above's go.
+    Parent,
+    /// Not added, nor anything inside it.
+    Skip,
+}
+
+/// A folder holding photos (directly or below), for planning an organized-folders import.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderInfo {
+    /// Path inside the scanned folder, "/"-separated; "" for the scanned folder itself.
+    pub path: String,
+    pub name: String,
+    pub depth: usize,
+    /// Photos directly in the folder.
+    pub photos: usize,
+    /// Photos in the folder and every folder below it.
+    pub total: usize,
+}
+
+/// The folders under `src` that hold photos, each followed by the ones inside it (by name).
+pub fn scan_folders(src: &Path) -> Result<Vec<FolderInfo>> {
+    if !src.is_dir() {
+        return Err(AppError::msg(format!("{} is not a folder", src.display())));
+    }
+    // Folder (as its path components) -> (photos directly in it, photos in it and below).
+    let mut counts: BTreeMap<Vec<String>, (usize, usize)> = BTreeMap::new();
+    let walker = WalkDir::new(src).follow_links(false).into_iter().filter_entry(|e| e.depth() == 0 || !is_ignored(e.file_name()));
+    for entry in walker.filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() || !is_supported(entry.path()) {
+            continue;
+        }
+        let Some(rel) = entry.path().parent().and_then(|d| d.strip_prefix(src).ok()) else { continue };
+        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        for depth in 0..=parts.len() {
+            let c = counts.entry(parts[..depth].to_vec()).or_default();
+            c.1 += 1;
+            if depth == parts.len() {
+                c.0 += 1;
+            }
+        }
+    }
+    let root_name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(counts
+        .into_iter()
+        .map(|(parts, (photos, total))| FolderInfo {
+            path: parts.join("/"),
+            name: parts.last().cloned().unwrap_or_else(|| root_name.clone()),
+            depth: parts.len(),
+            photos,
+            total,
+        })
+        .collect())
+}
+
+/// Where a folder's photos go under a plan.
+enum Place {
+    Skip,
+    /// Added, but to no album.
+    Loose,
+    /// Into this album, in the section at this path (none when empty); the album is filed in
+    /// the category at the last path (none when empty).
+    In(String, Vec<String>, Vec<String>),
+}
+
+/// Follows `plan` from `root` down to `dir`: each category nests in the category above and
+/// ends the album above, each album starts afresh, each section nests in the album or section
+/// above, a skipped folder skips everything inside it.
+fn place(root: &Path, dir: &Path, plan: &HashMap<String, FolderRole>) -> Place {
+    let Ok(rel) = dir.strip_prefix(root) else { return Place::Loose };
+    let names: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let (mut album, mut sections, mut categories) = (None::<String>, Vec::new(), Vec::new());
+    for depth in 0..=names.len() {
+        // A folder without a name (the root of a drive) can't name an album or section.
+        let name = match depth {
+            0 => root.file_name().map(|n| n.to_string_lossy().into_owned()),
+            _ => Some(names[depth - 1].clone()),
+        };
+        match (plan.get(&names[..depth].join("/")).copied().unwrap_or(FolderRole::Parent), name) {
+            (FolderRole::Skip, _) => return Place::Skip,
+            (FolderRole::Category, Some(name)) => {
+                categories.push(name);
+                album = None;
+                sections.clear();
+            }
+            (FolderRole::Album, Some(name)) => {
+                album = Some(name);
+                sections.clear();
+            }
+            (FolderRole::Section, Some(name)) if album.is_some() => sections.push(name),
+            (FolderRole::Section, Some(name)) => album = Some(name),
+            _ => {}
+        }
+    }
+    match album {
+        Some(album) => Place::In(album, sections, categories),
+        None => Place::Loose,
+    }
 }
 
 enum Outcome {
@@ -113,16 +221,19 @@ pub fn run(
         return Err(AppError::msg("cannot add photos from inside the library (or a parent of it)"));
     }
 
+    let plan = opts.plan.filter(|_| opts.folder_albums);
     let import_id = {
         let conn = lib.conn();
         conn.execute(
-            "INSERT INTO imports (source_dir, started_at, folder_albums, folder_sections, single_album) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO imports (source_dir, started_at, folder_albums, folder_sections, single_album, folder_plan)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 src.to_string_lossy(),
                 now(),
                 opts.folder_albums,
-                opts.folder_albums && opts.folder_sections,
-                opts.folder_albums && opts.folder_sections && opts.single_album
+                plan.is_some_and(|p| p.values().any(|r| *r == FolderRole::Section)),
+                plan.is_some_and(|p| p.values().filter(|r| **r == FolderRole::Album).count() == 1 && p.get("") == Some(&FolderRole::Album)),
+                plan.map(|p| serde_json::to_string(p).unwrap()),
             ],
         )?;
         conn.last_insert_rowid()
@@ -171,10 +282,28 @@ pub fn run(
     }
 
     let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
-    let album_of = if opts.folder_albums {
-        folder_album_ids(lib, src, &files, opts.folder_sections, opts.folder_sections && opts.single_album)?
-    } else {
-        HashMap::new()
+    let album_of = match plan {
+        Some(plan) => {
+            let mut places = HashMap::new();
+            for dir in files.iter().filter_map(|f| f.parent()) {
+                places.entry(dir.to_path_buf()).or_insert_with(|| place(src, dir, plan));
+            }
+            files.retain(|f| !f.parent().is_some_and(|d| matches!(places.get(d), Some(Place::Skip))));
+            let mut album_of = HashMap::new();
+            for (dir, p) in places {
+                if let Place::In(album, sections, categories) = p {
+                    let id = queries::find_or_create_album(lib, &album)?;
+                    if let Some(category) = queries::create_category_path(lib, &categories)? {
+                        // An album the user already filed somewhere stays there.
+                        lib.conn().execute("UPDATE albums SET category_id = ?1 WHERE id = ?2 AND category_id IS NULL", [category, id])?;
+                    }
+                    album_of.insert(dir, (id, sections));
+                }
+            }
+            album_of
+        }
+        None if opts.folder_albums => folder_album_ids(lib, &files)?,
+        None => HashMap::new(),
     };
     // Photos (by hash) that end up in each album and section, added once the copying is done.
     let album_hashes = Mutex::new(BTreeMap::<(i64, Vec<String>), Vec<String>>::new());
@@ -326,40 +455,18 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
-/// The album (and, with `sections`, the section path inside it) for each folder that directly
-/// holds one of `files`, keyed by folder. With `single`, `root` itself is the album.
-fn folder_album_ids(
-    lib: &Library,
-    root: &Path,
-    files: &[PathBuf],
-    sections: bool,
-    single: bool,
-) -> Result<HashMap<PathBuf, (i64, Vec<String>)>> {
+/// An album named after each folder that directly holds one of `files` (no sections), keyed
+/// by folder.
+fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf, (i64, Vec<String>)>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
+        // A folder without a name (the root of a drive) can't name an album.
         if out.contains_key(dir) {
             continue;
         }
-        let parts: Vec<String> = match dir.strip_prefix(root) {
-            Ok(rel) if sections => rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect(),
-            _ => Vec::new(),
-        };
-        let (name, section) = if single {
-            match root.file_name() {
-                Some(name) => (name.to_string_lossy().into_owned(), parts),
-                None => continue,
-            }
-        } else {
-            match parts.split_first() {
-                Some((album, rest)) => (album.clone(), rest.to_vec()),
-                // A folder without a name (the root of a drive) can't name an album.
-                None => match dir.file_name() {
-                    Some(name) => (name.to_string_lossy().into_owned(), Vec::new()),
-                    None => continue,
-                },
-            }
-        };
-        out.insert(dir.to_path_buf(), (queries::find_or_create_album(lib, &name)?, section));
+        if let Some(name) = dir.file_name() {
+            out.insert(dir.to_path_buf(), (queries::find_or_create_album(lib, &name.to_string_lossy())?, Vec::new()));
+        }
     }
     Ok(out)
 }
@@ -385,10 +492,10 @@ fn add_by_hash(lib: &Library, album: i64, section: &[String], hashes: &[String])
     let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
     queries::add_to_album(lib, album, &ids)?;
     if !section.is_empty() {
-        // Folder names are topics, so an album that gets its first sections this way lists
+        // Folder names aren't dates, so an album that gets its first sections this way lists
         // them by name; one the user already split keeps its kind.
         if queries::list_sections(lib, album)?.is_empty() {
-            queries::set_section_kind(lib, album, "topic")?;
+            queries::set_section_kind(lib, album, "name")?;
         }
         let mut leaf = None;
         for name in section {

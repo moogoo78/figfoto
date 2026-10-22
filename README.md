@@ -43,8 +43,8 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
         │ X / 1-4 marks    │ │ description   │ │ albums → files   │
         │ rating ★, fav ♥  │ │ camera, lens  │ │   move into      │
         │ duplicates view  │ │ private notes │ │   albums/<name>  │
-        │ Del → trash      │ │ date fix      │ │ topics, sections │
-        └────────┬─────────┘ └───────────────┘ │ tags             │
+        │ Del → trash      │ │ date fix      │ │ categories       │
+        └────────┬─────────┘ └───────────────┘ │ sections, tags   │
                  │                             └──────────────────┘
                  ▼
         ┌──────────────────┐

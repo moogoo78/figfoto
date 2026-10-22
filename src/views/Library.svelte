@@ -299,9 +299,9 @@
                 title={t("Sections in the order their photos were taken")}>
                 <span class="check">{currentAlbum.sectionKind === "date" ? "✓" : ""}</span>{t("By date")}
               </button>
-              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "topic"} onclick={() => setSectionKind("topic")}
+              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "name"} onclick={() => setSectionKind("name")}
                 title={t("Sections in order of their names")}>
-                <span class="check">{currentAlbum.sectionKind === "topic" ? "✓" : ""}</span>{t("By topic")}
+                <span class="check">{currentAlbum.sectionKind === "name" ? "✓" : ""}</span>{t("By name")}
               </button>
             </div>
           {/if}
@@ -316,14 +316,16 @@
       <button class="pin" class:on={pinned} title={pinned ? t("Remove from shortcuts") : t("Add to shortcuts")}
         onclick={() => store.mutate(() => api.setShortcut("album", currentAlbum.id, !pinned))}>{pinned ? "★" : "☆"}</button>
     {/if}
-    {#if currentAlbum && store.topics.length}
-      <select title={t("Topic")} value={currentAlbum.topicId ?? ""}
+    {#if currentAlbum && store.categories.length}
+      <select title={t("Category")} value={currentAlbum.categoryId ?? ""}
         onchange={(e) => {
           const v = e.currentTarget.value;
-          store.mutate(() => api.setAlbumTopic([currentAlbum.id], v ? Number(v) : null));
+          store.mutate(() => api.setAlbumCategory([currentAlbum.id], v ? Number(v) : null));
         }}>
-        <option value="">{t("No topic")}</option>
-        {#each store.topics as tp (tp.id)}<option value={tp.id}>{tp.name}</option>{/each}
+        <option value="">{t("No category")}</option>
+        {#each store.categoryTree() as { category: c, depth } (c.id)}
+          <option value={c.id}>{"\u00a0\u00a0".repeat(depth)}{c.name}</option>
+        {/each}
       </select>
     {/if}
     {#if markView && list.total > 0}
