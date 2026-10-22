@@ -18,7 +18,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
  │ hard drive   │        │         ADD PHOTOS         │
  │ SD card      │──────▶ │ • camera/SD  → by date     │
  │ phone folder │        │ • organized folders        │
- │ LINE / FB    │        │     → albums (+ sections)  │
+ │ LINE / FB    │        │     → albums, nested       │
  │ *cloud sync  │        │ • source label (LINE, …)   │
  └──────────────┘        │ skip: same hash, deleted,  │
                          │       unchanged path       │
@@ -27,7 +27,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
                                        ▼
                 ┌──────────────────────────────────────────┐
                 │              LIBRARY (disk)              │
-                │ originals/YYYY/MM/DD/   albums/<album>/  │
+                │ originals/YYYY/MM/DD/                    │
                 │ .figfoto/ db · thumbs · previews       │
                 └─────────────────────┬────────────────────┘
                                       │
@@ -40,11 +40,11 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
                     ▼               ▼                  ▼
         ┌──────────────────┐ ┌───────────────┐ ┌──────────────────┐
         │      CURATE      │ │   DESCRIBE    │ │    ORGANIZE      │
-        │ X / 1-4 marks    │ │ description   │ │ albums → files   │
-        │ rating ★, fav ♥  │ │ camera, lens  │ │   move into      │
-        │ duplicates view  │ │ private notes │ │   albums/<name>  │
-        │ Del → trash      │ │ date fix      │ │ categories       │
-        └────────┬─────────┘ └───────────────┘ │ sections, tags   │
+        │ X / 1-4 marks    │ │ description   │ │ albums, nested   │
+        │ rating ★, fav ♥  │ │ camera, lens  │ │   (Japan ›       │
+        │ duplicates view  │ │ private notes │ │    Kyoto › Day 2)│
+        │ Del → trash      │ │ date fix      │ │ shortcuts        │
+        └────────┬─────────┘ └───────────────┘ │ tags             │
                  │                             └──────────────────┘
                  ▼
         ┌──────────────────┐
@@ -67,18 +67,21 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
 ```
 <library>/
   originals/YYYY/MM/DD/<name>[-N].<ext>   # copied photos (sources are never modified)
-  albums/<album>/<name>[-N].<ext>         # photos that belong to an album
-  .figfoto/library.db                     # SQLite index
+  .figfoto/library.db                     # SQLite index (albums live here, not as folders)
   .figfoto/thumbs/<xx>/<hash>.jpg         # 400px thumbnails
   .figfoto/previews/<xx>/<hash>.jpg       # full-size JPEG for HEIC/TIFF (webview can't show them)
   .figfoto/trash/                         # trashed photos (restorable until emptied)
 ```
 
-Added photos are filed by date under `originals/`. Adding a photo to an album **moves the file** into
-`albums/<album>/`; renaming the album renames the folder. A photo in several albums lives in the
-first one's folder; when it leaves all albums it goes back to `originals/YYYY/MM/DD/`. To make an
-album from a day, hover the day header in the grid and click **＋ New album** (or select photos and
-click **＋ New album** in the selection bar).
+Added photos are filed by date under `originals/` and stay there; albums are kept in the library
+database, so adding a photo to an album (or to several) never moves the file. To make an album from
+a day, hover the day header in the grid and click **＋ New album** (or select photos and click
+**＋ New album** in the selection bar).
+
+Albums nest: an album holds photos, other albums, or both (*Travel › Japan › Kyoto › Day 2*). An
+album's page shows the albums inside either as tiles or with their photos inline, under a heading
+each, ordered oldest first, newest first or by name. Adding organized folders makes the same tree
+from the folders.
 
 **Empty trash** moves the files to the system Trash (not a permanent delete), so they can still be
 recovered from the desktop.

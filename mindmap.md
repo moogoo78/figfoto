@@ -30,9 +30,11 @@
 
             - photo already in library → added to album, no second copy
 
-            - folder tree before adding: each folder → category / album / section (inside the one above) / into folder above / skip, with where its photos will go
+            - folder tree before adding: each folder → album (inside the album above) / into folder above / skip, with where its photos will go
 
-               - presets: one album · an album per folder inside · every folder an album · categories and albums (folders with folders inside → categories)
+               - presets: one album · an album per folder inside · albums nested like the folders
+
+               - adding again: a photo moved elsewhere in the same top-level album stays put
 
                - Add again reuses the choices
 
@@ -120,37 +122,31 @@
 
       - album
 
-         - Albums page (below All photos): category tree with album tiles; new / rename / delete albums and categories
+         - Albums page (below All photos): top-level album tiles (stacked when albums are inside); new / rename / delete; drag an album onto another to put it inside
 
-         - sidebar shortcuts: albums and categories pinned with ☆, in the order pinned; drop photos on a shortcut album
+         - sidebar shortcuts: albums pinned with ☆, in the order pinned; drop photos on a shortcut album
 
-         - category (Travel › Japan…; holds albums and categories, nest to any depth; an album in one)
+         - albums nest (Travel › Japan › Kyoto › Day 2; an album holds photos, albums, or both)
 
-            - file an album: drag onto a category on the Albums page, or pick on the album page
+            - make inside: by hand (from the selection too) / split by day / added folders (nested like the folders)
 
-            - nest: drag a category onto another, or ＋ on a category; not inside itself
+            - move: drag onto another album, or Move to…; not inside itself
 
-            - delete: its albums and categories move up a level
+            - delete: the albums inside move up a level; for an album inside another, its photos too
 
-            - category page: path, category and album cover tiles, new category inside
+            - album page: path back up; albums inside shown inline (their photos under a heading each, the album's own last) or as tiles
 
-            - album pickers grouped by category path
+               - order: oldest first / newest first / by name; added folders → by name
 
-         - category from added folders (my-fotos/Travel/2019 Kyoto); an album already filed stays put
+               - a photo in two albums inside shows once, under the first
 
-         - section (Kyoto, Nara…; nest to any depth: Kyoto › Day 2 › Morning; a photo in one per album)
+               - move photos: selection bar or drag onto a heading / tile
 
-            - make: by hand / split by day / added subfolders (nested like the folders)
+               - collapse / expand an album inside (caret on the heading), or all at once; remembered per album
 
-            - photos only in sections without sub-sections; a section's own photos move to an "Other" sub-section when it gets its first
+            - album pickers: the tree, indented; photo info: album paths
 
-            - two kinds per album, at every level: by date (sections in the order their photos were taken) or by name; added subfolders → by name
-
-            - album page: headings in that order, "No section" last
-
-            - move photos: selection bar or drag onto a heading
-
-            - collapse / expand a section (caret on the heading), or all at once (Collapse all / Expand all); remembered per album
+            - from older libraries: categories → albums shown as tiles, sections → albums inside ("Other" folded back); a copy of the library kept first
 
       - tag
 
@@ -238,15 +234,15 @@
 
       - desktop is the master (originals + full library)
 
-      - online copy: web-size images + albums / categories / photo info
+      - online copy: web-size images + albums (nested) / photo info
 
          - without private notes, without originals
 
-      - mark album / category "Online", then Sync (only what changed goes up)
+      - mark an album "Online" (with the albums inside), then Sync (only what changed goes up)
 
       - organize online while the computer is off
 
-         - albums, categories, covers, ratings, descriptions
+         - albums, covers, ratings, descriptions
 
          - phone upload → online Inbox
 
@@ -264,6 +260,6 @@
 
          - real clash → "Needs review" list
 
-      - needs: stable ids (photo hash, album / category UUID) + updated_at
+      - needs: stable ids (photo hash, album UUID) + updated_at
 
       - hosting: own Docker server or Cloudflare (static site = read-only)
