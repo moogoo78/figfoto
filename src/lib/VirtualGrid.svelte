@@ -11,7 +11,8 @@
     onopen,
     onselect,
     ondayaction,
-    onsection,
+    onalbum,
+    ownLabel = "",
     collapsed = [],
     ontoggle,
     showOrigin = false,
@@ -21,12 +22,14 @@
     onselect: (index: number, e: MouseEvent) => void;
     /** Header buttons: select a day's photos, or make an album from them. */
     ondayaction?: (action: "select" | "album", day: string, start: number, count: number) => void;
-    /** Section headings (album sorted by section): rename, delete or add a sub-section to a
-     * section, or drop photos (`ids`) on it. Section 0 is "No section". */
-    onsection?: (action: "rename" | "delete" | "drop" | "add", section: number, arg: { name?: string; ids?: number[]; subsections?: number }) => void;
-    /** Sections whose photos (and sub-sections) are hidden, and the heading caret that hides or shows them. */
+    /** Headings of the albums inside an album shown inline: rename, delete or add an album
+     * inside one, or drop photos (`ids`) on it. Album 0 is the album's own photos. */
+    onalbum?: (action: "rename" | "delete" | "drop" | "add", album: number, arg: { name?: string; ids?: number[]; children?: number }) => void;
+    /** Heading of the album's own photos, after the albums inside. */
+    ownLabel?: string;
+    /** Albums whose photos (and albums inside) are hidden, and the heading caret that hides or shows them. */
     collapsed?: number[];
-    ontoggle?: (section: number) => void;
+    ontoggle?: (album: number) => void;
     /** Badge each photo with where it came from (phone, camera, LINE…). */
     showOrigin?: boolean;
   } = $props();
@@ -48,12 +51,12 @@
 
   type Row =
     | {
-        kind: "header"; top: number; day: string; count: number; start: number; section: number | null; label: string;
-        depth: number; subsections: number;
+        kind: "header"; top: number; day: string; count: number; start: number; album: number | null; label: string;
+        depth: number; children: number;
       }
     | { kind: "photos"; top: number; start: number; n: number };
 
-  /** Whether a collapsed section holds this one (at any depth). */
+  /** Whether a collapsed album holds this one (at any depth). */
   function inCollapsed(parent: number | null, parents: Map<number, number | null>): boolean {
     for (let p = parent; p != null; p = parents.get(p) ?? null) if (collapsed.includes(p)) return true;
     return false;
@@ -61,7 +64,7 @@
 
   const layout = $derived.by(() => {
     const rows: Row[] = [];
-    const parents = new Map(list.buckets.flatMap((b) => (b.section ? [[b.section, b.parent] as const] : [])));
+    const parents = new Map(list.buckets.flatMap((b) => (b.album ? [[b.album, b.parent] as const] : [])));
     let top = PAD;
     let index = 0;
     for (const b of list.buckets) {
@@ -69,16 +72,16 @@
         index += b.count;
         continue;
       }
-      if (b.day || b.section != null) {
-        // A section's count is the photos in it and its sub-sections, which follow it in order.
-        const count = b.section != null ? b.total : b.count;
+      if (b.day || b.album != null) {
+        // An album's count is the photos in it and the albums inside, which follow it in order.
+        const count = b.album != null ? b.total : b.count;
         rows.push({
-          kind: "header", top, day: b.day, count, start: index, section: b.section, label: b.label,
-          depth: b.depth, subsections: b.subsections,
+          kind: "header", top, day: b.day, count, start: index, album: b.album, label: b.label,
+          depth: b.depth, children: b.children,
         });
         top += HEADER;
       }
-      const hidden = b.section != null && collapsed.includes(b.section);
+      const hidden = b.album != null && collapsed.includes(b.album);
       for (let i = 0; !hidden && i < b.count; i += cols) {
         rows.push({ kind: "photos", top, start: index + i, n: Math.min(cols, b.count - i) });
         top += cell + GAP;
@@ -116,31 +119,31 @@
   /** Day-grouped and long enough that scrolling alone gets tedious. */
   const showScrubber = $derived(days.length > 1 && layout.height > height * 3);
 
-  /** Label of the day (or section) at the top of the viewport. */
+  /** Label of the day (or album inside) at the top of the viewport. */
   const currentDay = $derived.by(() => {
     let label = "";
     for (const r of layout.rows) {
       if (r.top > scrollTop + 8) break;
-      if (r.kind === "header") label = r.section != null ? r.label || t("No section") : fmtDay(r.day);
+      if (r.kind === "header") label = r.album != null ? r.label || ownLabel : fmtDay(r.day);
     }
     return scrollTop > HEADER ? label : "";
   });
 
-  /** Section whose name is being edited, and the one photos are dragged over. */
+  /** Album whose name is being edited, and the one photos are dragged over. */
   let editing = $state<number | null>(null);
   let dropOn = $state<number | null>(null);
   const isPhotoDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes("application/x-foto-ids");
 
-  function commitName(section: number, old: string, name: string) {
+  function commitName(album: number, old: string, name: string) {
     editing = null;
-    if (name.trim() && name.trim() !== old) onsection?.("rename", section, { name: name.trim() });
+    if (name.trim() && name.trim() !== old) onalbum?.("rename", album, { name: name.trim() });
   }
 
-  function dropPhotos(e: DragEvent, section: number) {
+  function dropPhotos(e: DragEvent, album: number) {
     e.preventDefault();
     dropOn = null;
     const raw = e.dataTransfer?.getData("application/x-foto-ids");
-    if (raw) onsection?.("drop", section, { ids: JSON.parse(raw) });
+    if (raw) onalbum?.("drop", album, { ids: JSON.parse(raw) });
   }
 
   const focusSelect = (el: HTMLInputElement) => {
@@ -176,12 +179,12 @@
 <div class="grid" id="photo-grid" class:scrubbed={showScrubber} bind:this={el} bind:clientWidth={width} bind:clientHeight={height} onscroll={() => (scrollTop = el.scrollTop)}>
   <div class="spacer" style:height="{layout.height}px">
     {#each visible as row (row.top)}
-      {#if row.kind === "header" && row.section != null}
-        {@const id = row.section}
+      {#if row.kind === "header" && row.album != null}
+        {@const id = row.album}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <h3 class="day section" class:sub={row.depth > 0} class:drop={dropOn === id} style:top="{row.top}px"
+        <h3 class="day inside" class:sub={row.depth > 0} class:drop={dropOn === id} style:top="{row.top}px"
           style:padding-left="{row.depth * 22}px"
-          ondragover={(e) => { if (onsection && !row.subsections && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
+          ondragover={(e) => { if (onalbum && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
           ondragleave={() => dropOn === id && (dropOn = null)}
           ondrop={(e) => dropPhotos(e, id)}>
           {#if ontoggle}
@@ -199,17 +202,17 @@
               }} />
           {:else}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span class="name" class:none={!id} title={id && onsection ? t("Double-click to rename") : ""}
-              ondblclick={() => id && onsection && (editing = id)}>{row.label || t("No section")}</span>
+            <span class="name" class:none={!id} title={id && onalbum ? t("Double-click to rename") : ""}
+              ondblclick={() => id && onalbum && (editing = id)}>{row.label || ownLabel}</span>
           {/if}
           <span class="count">{row.count}</span>
           {#if ondayaction && row.count}
             <button class="link dayact" onclick={() => ondayaction("select", "", row.start, row.count)}>{t("Select")}</button>
           {/if}
-          {#if id && onsection}
-            <button class="link dayact" title={t("Add a sub-section")} onclick={() => onsection("add", id, { name: row.label })}>＋</button>
-            <button class="link dayact" title={t("Delete section")}
-              onclick={() => onsection("delete", id, { name: row.label, subsections: row.subsections })}>×</button>
+          {#if id && onalbum}
+            <button class="link dayact" title={t("New album inside")} onclick={() => onalbum("add", id, { name: row.label })}>＋</button>
+            <button class="link dayact" title={t("Delete album")}
+              onclick={() => onalbum("delete", id, { name: row.label, children: row.children })}>×</button>
           {/if}
         </h3>
       {:else if row.kind === "header"}
@@ -272,9 +275,9 @@
     display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600;
   }
   .day .count { color: var(--muted); font-weight: 400; font-size: 13px; }
-  .section.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
-  .section .none { color: var(--muted); font-weight: 400; }
-  .section.sub { font-size: 14px; }
+  .inside.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
+  .inside .none { color: var(--muted); font-weight: 400; }
+  .inside.sub { font-size: 14px; }
   .secname { font-size: 14px; width: 260px; }
   .caret { width: 18px; margin-left: -4px; font-size: 11px; color: var(--muted); }
   .dayact { font-size: 12px; font-weight: 400; margin-left: 6px; visibility: hidden; }

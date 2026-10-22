@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, FolderInfo, FolderRole, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Section, SectionKind, Sort, Tag, Category, VerifyResult,
+  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, FolderInfo, FolderRole, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Sort, Tag, ChildOrder, AlbumDisplay, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -41,37 +41,26 @@ export const api = {
   removeTag: (ids: number[], tagId: number) => invoke<void>("remove_tag", { ids, tagId }),
   listCameras: () => invoke<string[]>("list_cameras"),
 
+  /** Every album as a tree, each followed by the albums inside it. */
   listAlbums: () => invoke<Album[]>("list_albums"),
-  createAlbum: (name: string) => invoke<number>("create_album", { name }),
+  /** `parentId` null makes a top-level album. */
+  createAlbum: (name: string, parentId: number | null = null) => invoke<number>("create_album", { name, parentId }),
   renameAlbum: (id: number, name: string) => invoke<void>("rename_album", { id, name }),
-  listCategories: () => invoke<Category[]>("list_categories"),
-  /** `parentId` null makes a top-level category. */
-  createCategory: (name: string, parentId: number | null = null) => invoke<number>("create_category", { name, parentId }),
-  renameCategory: (id: number, name: string) => invoke<void>("rename_category", { id, name }),
-  /** Moves a category inside another, or to the top level with `parentId` null. */
-  moveCategory: (id: number, parentId: number | null) => invoke<void>("move_category", { id, parentId }),
-  /** Its albums and the categories inside it move up a level. */
-  deleteCategory: (id: number) => invoke<void>("delete_category", { id }),
-  /** `categoryId` null takes the albums out of their category. */
-  setAlbumCategory: (albumIds: number[], categoryId: number | null) => invoke<void>("set_album_category", { albumIds, categoryId }),
-  /** Pins an album or category to the sidebar's shortcuts, or unpins it. */
-  setShortcut: (kind: "album" | "category", id: number, pinned: boolean) => invoke<void>("set_shortcut", { kind, id, pinned }),
-  listSections: (albumId: number) => invoke<Section[]>("list_sections", { albumId }),
-  /** Reuses the section with that name (any case) in `parentId` (the top with null), else adds
-   * one. A section holding photos hands them to an "Other" sub-section when it gets its first. */
-  createSection: (albumId: number, parentId: number | null, name: string) =>
-    invoke<number>("create_section", { albumId, parentId, name }),
-  renameSection: (id: number, name: string) => invoke<void>("rename_section", { id, name }),
-  deleteSection: (id: number) => invoke<void>("delete_section", { id }),
-  setSectionKind: (albumId: number, kind: SectionKind) => invoke<void>("set_section_kind", { albumId, kind }),
-  /** `sectionId` null puts the photos in no section. */
-  setPhotoSection: (albumId: number, ids: number[], sectionId: number | null) =>
-    invoke<void>("set_photo_section", { albumId, ids, sectionId }),
-  /** Returns how many days the unsectioned photos were split into. */
-  splitByDay: (albumId: number) => invoke<number>("split_by_day", { albumId }),
+  /** The albums inside it, and for an album inside another its photos, move up a level. */
   deleteAlbum: (id: number) => invoke<void>("delete_album", { id }),
+  /** Moves an album inside another, or to the top level with `parentId` null. */
+  moveAlbum: (id: number, parentId: number | null) => invoke<void>("move_album", { id, parentId }),
+  setChildOrder: (albumId: number, order: ChildOrder) => invoke<void>("set_child_order", { albumId, order }),
+  setAlbumDisplay: (albumId: number, display: AlbumDisplay) => invoke<void>("set_album_display", { albumId, display }),
+  /** Pins an album to the sidebar's shortcuts, or unpins it. */
+  setShortcut: (albumId: number, pinned: boolean) => invoke<void>("set_shortcut", { albumId, pinned }),
+  /** Moves the album's own photos into an album inside it per day; returns how many days. */
+  splitByDay: (albumId: number) => invoke<number>("split_by_day", { albumId }),
   addToAlbum: (albumId: number, ids: number[]) => invoke<void>("add_to_album", { albumId, ids }),
-  removeFromAlbum: (albumId: number, ids: number[]) => invoke<void>("remove_from_album", { albumId, ids }),
+  /** With `inside`, also out of every album inside it. */
+  removeFromAlbum: (albumId: number, ids: number[], inside = false) => invoke<void>("remove_from_album", { albumId, ids, inside }),
+  /** Moves photos shown on album `from`'s page (in it or an album inside) into album `to`. */
+  movePhotos: (from: number, to: number, ids: number[]) => invoke<void>("move_photos", { from, to, ids }),
   setAlbumCover: (albumId: number, photoId: number) => invoke<void>("set_album_cover", { albumId, photoId }),
 
   findDuplicates: (threshold: number) => invoke<Photo[][]>("find_duplicates", { threshold }),

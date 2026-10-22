@@ -11,7 +11,7 @@
   let source = $state("");
   /** Optional label for where these photos came from (e.g. LINE). */
   let origin = $state("");
-  /** Organized folders: each folder becomes a category, an album, a section, part of the folder above, or is skipped. */
+  /** Organized folders: each folder becomes an album (inside the album above), part of the folder above, or is skipped. */
   let folderAlbums = $state(false);
   /** The chosen folder's folders that hold photos (organized folders), once scanned. */
   let folders = $state.raw<FolderInfo[] | null>(null);
@@ -66,21 +66,16 @@
 
   const byPath = $derived(new Map((folders ?? []).map((f) => [f.path, f])));
   const places = $derived((folders ?? []).map((f) => place(f, byPath, roles)));
-  /** Categories and albums the plan makes, and photos it leaves out. */
+  /** Albums the plan makes, and photos it leaves out. */
   const summary = $derived.by(() => {
     const albums = new Set<string>();
-    const categories = new Set<string>();
     let skipped = 0;
     places.forEach((pl, i) => {
-      if (pl.kind === "in") albums.add(pl.album);
+      if (pl.kind === "in") pl.albums.forEach((_, k) => albums.add(pl.albums.slice(0, k + 1).join("/")));
       if (pl.kind === "skip") skipped += folders![i].photos;
-      else if (roles[folders![i].path] === "category") categories.add([...pl.categories].join("/"));
     });
-    return { albums: albums.size, categories: categories.size, skipped };
+    return { albums: albums.size, skipped };
   });
-
-  /** "Travel / Japan / " before an album, for where photos go. */
-  const inCategories = (categories: string[]) => categories.map((c) => c + " / ").join("");
 
   const p = $derived(started ? store.progress : null);
   const running = $derived(started && !p?.finished);
@@ -129,7 +124,7 @@
           <label class:on={folderAlbums}>
             <input type="radio" name="kind" value={true} bind:group={folderAlbums} />
             <strong>{t("Organized folders")}</strong>
-            <small>{t("Folders become categories, albums or sections")}</small>
+            <small>{t("Folders become albums, nested like the folders")}</small>
           </label>
         </div>
         <p class="hint">
@@ -143,7 +138,7 @@
           <div class="plan">
             <div class="presets">
               <span>{t("Make:")}</span>
-              {#each [["one", t("One album")], ["inside", t("An album per folder inside")], ["every", t("Every folder an album")], ["categories", t("Categories and albums")]] as [value, label] (value)}
+              {#each [["one", t("One album")], ["inside", t("An album per folder inside")], ["every", t("Albums nested like the folders")]] as [value, label] (value)}
                 <button class:active={preset === value} onclick={() => applyPreset(value as FolderPreset)}>{label}</button>
               {/each}
             </div>
@@ -152,7 +147,7 @@
             {:else if folders && !folders.length}
               <p class="hint">{t("No photos in this folder.")}</p>
             {:else if folders}
-              <p class="hint">{t("Choose what each folder becomes. A section goes inside the album (or section) above it; albums below a category are filed in it.")}</p>
+              <p class="hint">{t("Choose what each folder becomes. An album goes inside the album of the folder above it.")}</p>
               <div class="tree">
                 {#each folders as f, i (f.path)}
                   {@const pl = places[i]}
@@ -161,24 +156,21 @@
                     <span class="fname" style:padding-left="{f.depth * 18}px" title={f.path || source}>{f.name}</span>
                     <small title={t("{n} photos here, {m} with the folders inside", { n: f.photos, m: f.total })}>{f.total}</small>
                     <select bind:value={roles[f.path]} disabled={under}>
-                      <option value="category">{t("Category")}</option>
                       <option value="album">{t("Album")}</option>
-                      {#if f.depth > 0}<option value="section">{t("Section")}</option>{/if}
                       <option value="parent">{f.depth > 0 ? t("Into folder above") : t("No album")}</option>
                       {#if f.depth > 0}<option value="skip">{t("Skip")}</option>{/if}
                     </select>
                     <span class="dest">
                       <!-- Only folders that hold photos themselves say where those go. -->
                       {#if pl.kind === "skip"}{t("not added")}
-                      {:else if f.photos && pl.kind === "loose"}→ {inCategories(pl.categories)}{t("no album")}
-                      {:else if f.photos && pl.kind === "in"}→ {inCategories(pl.categories)}{[pl.album, ...pl.sections].join(" › ")}{/if}
+                      {:else if f.photos && pl.kind === "loose"}→ {t("no album")}
+                      {:else if f.photos && pl.kind === "in"}→ {pl.albums.join(" › ")}{/if}
                     </span>
                   </div>
                 {/each}
               </div>
               <p class="hint">
                 {[
-                  ...(summary.categories ? [t("{n} category(ies)", { n: summary.categories })] : []),
                   t("{n} album(s)", { n: summary.albums }),
                   ...(summary.skipped ? [t("{n} photos skipped", { n: summary.skipped })] : []),
                   t("Photos already in the library are added to their album without a second copy."),

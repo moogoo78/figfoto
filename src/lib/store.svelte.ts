@@ -3,7 +3,7 @@ import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
 import type { FolderPreset } from "./folderPlan";
-import type { Album, Counts, Filter, FolderRole, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Section, Sort, Tag, Category, View } from "./types";
+import type { Album, Counts, Filter, FolderRole, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, View } from "./types";
 
 interface Toast {
   id: number;
@@ -22,10 +22,8 @@ class Store {
   thumbSize = $state(180);
 
   tags = $state.raw<Tag[]>([]);
+  /** Every album as a tree, each followed by the albums inside it. */
   albums = $state.raw<Album[]>([]);
-  categories = $state.raw<Category[]>([]);
-  /** Sections of the album being viewed. */
-  sections = $state.raw<Section[]>([]);
   cameras = $state.raw<string[]>([]);
   counts = $state.raw<Counts>({ all: 0, favorites: 0, trash: 0, marked: 0, unbacked: 0 });
   marks = $state.raw<MarkSlot[]>([]);
@@ -99,7 +97,7 @@ class Store {
       const lib = await api.openLibrary(path, create);
       this.root = lib.root;
       this.view = { kind: "library" };
-      if (this.sort === "section") this.sort = "takenDesc";
+      if (this.sort === "children") this.sort = "takenDesc";
       this.clearQuery();
       this.selection.clear();
       await this.refreshMeta();
@@ -119,22 +117,14 @@ class Store {
     const fromAlbum = this.view.kind === "album";
     this.view = view;
     this.selection.clear();
-    // Albums read oldest first (by section when split into sections); everything else
-    // goes back to newest first on the way out, and "by section" means nothing elsewhere.
+    // Albums read oldest first (by the albums inside when it shows them inline); everything
+    // else goes back to newest first on the way out, and "by album" means nothing elsewhere.
     if (view.kind === "album") {
-      this.sort = this.albums.find((a) => a.id === view.id)?.sections ? "section" : "takenAsc";
-    } else if (fromAlbum || this.sort === "section") {
+      const album = this.albums.find((a) => a.id === view.id);
+      this.sort = album?.children && album.display === "inline" ? "children" : "takenAsc";
+    } else if (fromAlbum || this.sort === "children") {
       this.sort = "takenDesc";
     }
-    this.sections = [];
-    this.#loadSections().catch(() => {});
-  }
-
-  /** Loads the sections of the album being viewed (none elsewhere). */
-  async #loadSections() {
-    const v = this.view;
-    const sections = v.kind === "album" ? await api.listSections(v.id) : [];
-    if (this.view === v) this.sections = sections;
   }
 
   clearQuery() {
@@ -143,7 +133,7 @@ class Store {
   }
 
   async refreshMeta() {
-    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes, categories] = await Promise.all([
+    const [tags, albums, cameras, counts, imports, marks, sources, lenses, settingsNotes] = await Promise.all([
       api.listTags(),
       api.listAlbums(),
       api.listCameras(),
@@ -153,7 +143,6 @@ class Store {
       api.listSources(),
       api.listLenses(),
       api.listSettingsNotes(),
-      api.listCategories(),
     ]);
     this.marks = marks;
     this.sources = sources;
@@ -162,15 +151,12 @@ class Store {
     this.imports = imports;
     this.tags = tags;
     this.albums = albums;
-    this.categories = categories;
     this.cameras = cameras;
     this.counts = counts;
-    await this.#loadSections();
     // Leave views that no longer exist.
     const v = this.view;
     if (
       (v.kind === "album" && !albums.some((a) => a.id === v.id)) ||
-      (v.kind === "category" && !categories.some((c) => c.id === v.id)) ||
       (v.kind === "tag" && !tags.some((tag) => tag.id === v.id)) ||
       (v.kind === "import" && !imports.some((i) => i.id === v.id))
     ) {
@@ -192,72 +178,33 @@ class Store {
     await this.refreshMeta().catch(() => {});
   }
 
-  /** Every category, each followed by the ones inside it (by name), with its depth. */
-  categoryTree(): { category: Category; depth: number }[] {
-    const out: { category: Category; depth: number }[] = [];
-    const known = new Set(this.categories.map((c) => c.id));
-    const walk = (parentId: number | null, depth: number) => {
-      for (const category of this.categories) {
-        // A category whose parent is gone shows at the top level.
-        const parent = category.parentId != null && known.has(category.parentId) ? category.parentId : null;
-        if (parent !== parentId) continue;
-        out.push({ category, depth });
-        walk(category.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
-  }
-
-  /** The categories from the top down to `id`, `id` included. */
-  categoryPath(id: number | null): Category[] {
-    const path: Category[] = [];
-    for (let c = this.categories.find((x) => x.id === id); c && !path.includes(c); c = this.categories.find((x) => x.id === c!.parentId)) {
-      path.unshift(c);
+  /** The albums from the top down to `id`, `id` included. */
+  albumPath(id: number | null): Album[] {
+    const path: Album[] = [];
+    for (let a = this.albums.find((x) => x.id === id); a && !path.includes(a); a = this.albums.find((x) => x.id === a!.parentId)) {
+      path.unshift(a);
     }
     return path;
   }
 
-  /** Ids of the category and every category inside it, at any depth. */
-  categoryAndInside(id: number): Set<number> {
-    const ids = new Set([id]);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const c of this.categories) {
-        if (c.parentId != null && ids.has(c.parentId) && !ids.has(c.id)) {
-          ids.add(c.id);
-          grew = true;
-        }
-      }
-    }
-    return ids;
+  /** "Japan › Kyoto" */
+  albumLabel(id: number | null): string {
+    return this.albumPath(id).map((a) => a.name).join(" › ");
   }
 
-  /** Albums in the category and every category inside it. */
-  albumsUnder(id: number): Album[] {
-    const ids = this.categoryAndInside(id);
-    return this.albums.filter((a) => a.categoryId != null && ids.has(a.categoryId));
+  /** The albums inside `id`, at any depth, in tree order. */
+  albumsInside(id: number): Album[] {
+    const start = this.albums.findIndex((a) => a.id === id);
+    if (start < 0) return [];
+    const depth = this.albums[start].depth;
+    const out: Album[] = [];
+    for (let i = start + 1; i < this.albums.length && this.albums[i].depth > depth; i++) out.push(this.albums[i]);
+    return out;
   }
 
-  /** "Travel › Japan" */
-  categoryLabel(id: number | null): string {
-    return this.categoryPath(id).map((c) => c.name).join(" › ");
-  }
-
-  /** Albums grouped by category, in tree order, then the albums in no category (`category`
-   * null). Empty categories are included unless `skipEmpty`. */
-  albumsByCategory(skipEmpty = false): { category: Category | null; depth: number; albums: Album[] }[] {
-    const groups = this.categoryTree().map(({ category, depth }) => ({
-      category: category as Category | null,
-      depth,
-      albums: this.albums.filter((a) => a.categoryId === category.id),
-    }));
-    groups.push({
-      category: null,
-      depth: 0,
-      albums: this.albums.filter((a) => a.categoryId == null || !this.categories.some((c) => c.id === a.categoryId)),
-    });
-    return skipEmpty ? groups.filter((g) => g.albums.length) : groups;
+  /** The albums directly inside `id` (the top-level albums with null), in order. */
+  albumsIn(id: number | null): Album[] {
+    return this.albums.filter((a) => a.parentId === id);
   }
 
   markSlot(mark: Mark): MarkSlot | undefined {

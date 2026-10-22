@@ -801,13 +801,21 @@ pub fn move_album(lib: &Library, id: i64, parent: Option<i64>) -> Result<()> {
     Ok(())
 }
 
-/// Deletes an album; its photos stay in the library and the albums inside it move up to the
-/// album above (or the top level).
+/// Deletes an album; its photos stay in the library. The albums inside it, and for an album
+/// inside another its photos too, move up to the album above (or the top level).
 pub fn delete_album(lib: &Library, id: i64) -> Result<()> {
     let mut conn = lib.conn();
     let tx = conn.transaction()?;
     let parent: Option<i64> = tx.query_row("SELECT parent_id FROM albums WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
     tx.execute("UPDATE albums SET parent_id = ?1 WHERE parent_id = ?2", params![parent, id])?;
+    if let Some(parent) = parent {
+        tx.execute(
+            "INSERT OR IGNORE INTO album_photos (album_id, photo_id, position)
+             SELECT ?1, photo_id, position + (SELECT COALESCE(MAX(position), -1) + 1 FROM album_photos WHERE album_id = ?1)
+             FROM album_photos WHERE album_id = ?2",
+            [parent, id],
+        )?;
+    }
     tx.execute("DELETE FROM albums WHERE id = ?1", [id])?;
     tx.commit()?;
     Ok(())

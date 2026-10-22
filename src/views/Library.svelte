@@ -8,8 +8,10 @@
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
   import SourceInput from "../lib/SourceInput.svelte";
+  import AlbumMove from "../lib/AlbumMove.svelte";
   import AlbumOptions from "../lib/AlbumOptions.svelte";
-  import type { SectionKind } from "../lib/types";
+  import AlbumTiles from "../lib/AlbumTiles.svelte";
+  import type { AlbumDisplay, ChildOrder } from "../lib/types";
   import SettingsInput from "../lib/SettingsInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
@@ -26,11 +28,11 @@
   let showFilters = $state(false);
   /** Name being typed for a new album made from the selection; null when closed. */
   let newAlbumName = $state<string | null>(null);
-  /** Album page: the Sections menu, and the name being typed for a new section. */
-  let sectionMenu = $state(false);
-  let newSectionName = $state<string | null>(null);
-  /** The section the new one goes inside (null: at the top of the album). */
-  let newSectionParent = $state<{ id: number; name: string } | null>(null);
+  /** Album page: the Albums menu, and the name being typed for a new album inside. */
+  let albumMenu = $state(false);
+  let newChildName = $state<string | null>(null);
+  /** The album the new one goes inside, when not the album shown. */
+  let newChildParent = $state<{ id: number; name: string } | null>(null);
 
   const key = $derived(JSON.stringify([store.filter, store.sort]));
   let loadedKey = "";
@@ -77,31 +79,38 @@
   const albumId = $derived(store.view.kind === "album" ? store.view.id : null);
   const currentAlbum = $derived(albumId == null ? undefined : store.albums.find((a) => a.id === albumId));
   const markView = $derived(store.view.kind === "mark" ? store.view.mark : null);
+  /** The albums above the one shown, top first, and the albums inside it (at any depth). */
+  const above = $derived(albumId == null ? [] : store.albumPath(albumId).slice(0, -1));
+  const inside = $derived(albumId == null ? [] : store.albumsInside(albumId));
+  /** Albums inside shown as tiles above the photos (the album's own only). */
+  const tiles = $derived(currentAlbum?.display === "tiles" ? store.albumsIn(currentAlbum.id) : []);
+  /** The photos are grouped under the albums inside. */
+  const byChildren = $derived(albumId != null && store.sort === "children" && currentAlbum?.display === "inline" && inside.length > 0);
 
-  // Collapsed sections of this album, remembered per library in this browser only.
-  const collapseKey = $derived(`figfoto.collapsedSections:${store.root}:${albumId}`);
-  let collapsedSections = $state<number[]>([]);
+  // Collapsed albums inside this album, remembered per library in this browser only.
+  const collapseKey = $derived(`figfoto.collapsedAlbums:${store.root}:${albumId}`);
+  let collapsedAlbums = $state<number[]>([]);
   $effect(() => {
     try {
-      collapsedSections = JSON.parse(localStorage.getItem(collapseKey) ?? "[]");
+      collapsedAlbums = JSON.parse(localStorage.getItem(collapseKey) ?? "[]");
     } catch {
-      collapsedSections = [];
+      collapsedAlbums = [];
     }
   });
-  function toggleSection(id: number) {
-    saveCollapsed(collapsedSections.includes(id) ? collapsedSections.filter((c) => c !== id) : [...collapsedSections, id]);
+  function toggleChild(id: number) {
+    saveCollapsed(collapsedAlbums.includes(id) ? collapsedAlbums.filter((c) => c !== id) : [...collapsedAlbums, id]);
   }
-  /** Every section of the album, and "No section" (0). */
-  const allSections = $derived([...store.sections.map((s) => s.id), 0]);
-  const allCollapsed = $derived(store.sections.length > 0 && allSections.every((id) => collapsedSections.includes(id)));
-  /** Collapses every section, or expands them all when they already are. */
-  function toggleAllSections() {
-    saveCollapsed(allCollapsed ? [] : allSections);
+  /** Every album inside, and the album's own photos (0). */
+  const allChildren = $derived([...inside.map((a) => a.id), 0]);
+  const allCollapsed = $derived(inside.length > 0 && allChildren.every((id) => collapsedAlbums.includes(id)));
+  /** Collapses every album inside, or expands them all when they already are. */
+  function toggleAllChildren() {
+    saveCollapsed(allCollapsed ? [] : allChildren);
   }
   function saveCollapsed(ids: number[]) {
-    collapsedSections = ids;
+    collapsedAlbums = ids;
     try {
-      localStorage.setItem(collapseKey, JSON.stringify(collapsedSections));
+      localStorage.setItem(collapseKey, JSON.stringify(collapsedAlbums));
     } catch {
       // Not remembered; fine.
     }
@@ -166,58 +175,69 @@
     if (action === "album") newAlbumName = day;
   }
 
-  /** Adds a section to the album (or inside `newSectionParent`); the selected photos, if any,
-   * go into it. */
-  async function createSection() {
-    const name = newSectionName?.trim();
-    const parent = newSectionParent?.id ?? null;
-    newSectionName = null;
-    newSectionParent = null;
-    if (!name || albumId == null) return;
+  /** Adds an album inside the album shown (or inside `newChildParent`); the selected photos, if
+   * any, move into it. */
+  async function createChild() {
+    const name = newChildName?.trim();
+    const parent = newChildParent?.id ?? albumId;
+    newChildName = null;
+    newChildParent = null;
+    if (!name || albumId == null || parent == null) return;
     const [album, ids] = [albumId, selected];
     await store.mutate(async () => {
-      const id = await api.createSection(album, parent, name);
-      if (ids.length) await api.setPhotoSection(album, ids, id);
-    }, ids.length ? t("Section “{name}” made with {n} photo(s)", { name, n: ids.length }) : t("Section “{name}” added", { name }));
-    store.sort = "section";
+      const id = await api.createAlbum(name, parent);
+      if (ids.length) await api.movePhotos(album, id, ids);
+    }, ids.length ? t("Album “{name}” made with {n} photo(s)", { name, n: ids.length }) : t("Album “{name}” added", { name }));
+    if (currentAlbum?.display === "inline") store.sort = "children";
+    store.selection.clear();
   }
 
   function splitByDay() {
-    sectionMenu = false;
+    albumMenu = false;
     if (albumId == null) return;
     const album = albumId;
-    store.mutate(() => api.splitByDay(album), (n) => (n ? t("Split into {n} day(s)", { n }) : t("Every photo is already in a section")));
-    store.sort = "section";
+    store.mutate(() => api.splitByDay(album), (n) => (n ? t("Split into {n} day(s)", { n }) : t("Every photo is already in an album inside")));
+    if (currentAlbum?.display === "inline") store.sort = "children";
   }
 
-  function setSectionKind(kind: SectionKind) {
-    sectionMenu = false;
-    if (albumId == null || currentAlbum?.sectionKind === kind) return;
+  function setChildOrder(order: ChildOrder) {
+    albumMenu = false;
+    if (albumId == null || currentAlbum?.childOrder === order) return;
     const album = albumId;
-    store.mutate(() => api.setSectionKind(album, kind));
+    store.mutate(() => api.setChildOrder(album, order));
   }
 
-  function moveToSection(section: number | null) {
+  function setDisplay(display: AlbumDisplay) {
+    albumMenu = false;
+    if (albumId == null || currentAlbum?.display === display) return;
+    const album = albumId;
+    store.mutate(() => api.setAlbumDisplay(album, display));
+    store.sort = display === "inline" && inside.length ? "children" : "takenAsc";
+  }
+
+  /** Moves the selected photos into an album inside (or the album shown itself). */
+  function moveTo(target: number) {
     if (albumId == null) return;
     const [album, ids] = [albumId, selected];
-    store.mutate(() => api.setPhotoSection(album, ids, section), t("Moved {n} photo(s)", { n: ids.length }));
-    if (section != null) store.sort = "section";
+    store.mutate(() => api.movePhotos(album, target, ids), t("Moved {n} photo(s)", { n: ids.length }));
   }
 
-  async function onsection(action: "rename" | "delete" | "drop" | "add", id: number, arg: { name?: string; ids?: number[]; subsections?: number }) {
+  async function onalbum(action: "rename" | "delete" | "drop" | "add", id: number, arg: { name?: string; ids?: number[]; children?: number }) {
     if (albumId == null) return;
     const album = albumId;
     if (action === "add") {
-      newSectionParent = { id, name: arg.name ?? "" };
-      newSectionName = "";
-    } else if (action === "rename" && arg.name) store.mutate(() => api.renameSection(id, arg.name!));
+      newChildParent = { id, name: arg.name ?? "" };
+      newChildName = "";
+    } else if (action === "rename" && arg.name) store.mutate(() => api.renameAlbum(id, arg.name!));
     else if (action === "drop" && arg.ids?.length) {
-      store.mutate(() => api.setPhotoSection(album, arg.ids!, id || null), t("Moved {n} photo(s)", { n: arg.ids.length }));
+      store.mutate(() => api.movePhotos(album, id || album, arg.ids!), t("Moved {n} photo(s)", { n: arg.ids.length }));
     } else if (action === "delete") {
-      const msg = arg.subsections
-        ? t("Delete section “{name}” and the sections inside it? Their photos stay in the album.", { name: arg.name ?? "" })
-        : t("Delete section “{name}”? Its photos stay in the album.", { name: arg.name ?? "" });
-      if (await ask(msg, { title: t("Delete section"), kind: "warning" })) store.mutate(() => api.deleteSection(id));
+      const parent = store.albums.find((a) => a.id === id)?.parentId;
+      const msg = t('Delete album "{name}"? Its photos and the albums inside it move up to "{parent}".', {
+        name: arg.name ?? "",
+        parent: store.albums.find((a) => a.id === parent)?.name ?? "",
+      });
+      if (await ask(msg, { title: t("Delete album"), kind: "warning" })) store.mutate(() => api.deleteAlbum(id));
     }
   }
 
@@ -252,7 +272,7 @@
   const singleRating = $derived(selected.length === 1 ? (list.find(selected[0])?.rating ?? 0) : 0);
 </script>
 
-<svelte:window {onkeydown} onpointerdown={(e) => sectionMenu && !(e.target as Element).closest?.(".secwrap") && (sectionMenu = false)} />
+<svelte:window {onkeydown} onpointerdown={(e) => albumMenu && !(e.target as Element).closest?.(".menuwrap") && (albumMenu = false)} />
 
 <section class="library">
   <header>
@@ -263,70 +283,73 @@
       <button class="link" onclick={() => store.setView({ kind: "marks" })} title={t("Back to marks")}>‹ {t("Marks")}</button>
       <span class="mark mark-{markView}">{markView}</span>
     {/if}
+    {#if currentAlbum}
+      <nav class="path">
+        <button class="link" onclick={() => store.setView({ kind: "albums" })}>{t("Albums")}</button>
+        {#each above as a (a.id)}
+          <span class="sep">›</span>
+          <button class="link" onclick={() => store.setView({ kind: "album", id: a.id })}>{a.name}</button>
+        {/each}
+        <span class="sep">›</span>
+      </nav>
+    {/if}
     <h1 title={currentImport?.sourceDir}>{title}</h1>
     <span class="count">
       {t("{n} photos", { n: list.total.toLocaleString() })}{#if currentImport} · {t("added {date}", { date: fmtDateTime(currentImport.startedAt) })}{/if}
     </span>
     <span class="grow"></span>
     {#if currentAlbum}
-      {#if newSectionName != null}
+      {#if newChildName != null}
         <input
           class="albumname"
-          placeholder={newSectionParent
-            ? t("Sub-section of “{name}”", { name: newSectionParent.name })
-            : selected.length ? t("Section for {n} selected", { n: selected.length }) : t("Section name")}
-          bind:value={newSectionName}
+          placeholder={newChildParent
+            ? t("Album inside “{name}”", { name: newChildParent.name })
+            : selected.length ? t("Album for {n} selected", { n: selected.length }) : t("Album name")}
+          bind:value={newChildName}
           use:focusSelect
-          onblur={() => { newSectionName = null; newSectionParent = null; }}
+          onblur={() => { newChildName = null; newChildParent = null; }}
           onkeydown={(e) => {
-            if (e.key === "Enter") createSection();
-            if (e.key === "Escape") { newSectionName = null; newSectionParent = null; }
+            if (e.key === "Enter") createChild();
+            if (e.key === "Escape") { newChildName = null; newChildParent = null; }
             e.stopPropagation();
           }} />
-        <button class="primary" onmousedown={(e) => e.preventDefault()} onclick={createSection}
-          disabled={!newSectionName.trim()}>{t("Save")}</button>
+        <button class="primary" onmousedown={(e) => e.preventDefault()} onclick={createChild}
+          disabled={!newChildName.trim()}>{t("Save")}</button>
       {:else}
-        <span class="secwrap">
-          <button onclick={() => (sectionMenu = !sectionMenu)} title={t("Split the album into parts, like Kyoto and Nara")}>{t("Sections")} ▾</button>
-          {#if sectionMenu}
+        <span class="menuwrap">
+          <button onclick={() => (albumMenu = !albumMenu)} title={t("Albums inside this one, like Kyoto and Nara in Japan")}>{t("Albums inside")} ▾</button>
+          {#if albumMenu}
             <div class="menu" role="menu">
-              <button role="menuitem" onclick={() => { sectionMenu = false; newSectionName = ""; }}>
-                {selected.length ? t("New section from {n} selected", { n: selected.length }) : t("New section")}
+              <button role="menuitem" onclick={() => { albumMenu = false; newChildName = ""; }}>
+                {selected.length ? t("New album inside from {n} selected", { n: selected.length }) : t("New album inside")}
               </button>
-              <button role="menuitem" onclick={splitByDay} title={t("Photos in no section go into one section per day")}>{t("Split by day")}</button>
+              <button role="menuitem" onclick={splitByDay} title={t("This album's own photos go into an album inside per day")}>{t("Split by day")}</button>
               <hr />
-              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "date"} onclick={() => setSectionKind("date")}
-                title={t("Sections in the order their photos were taken")}>
-                <span class="check">{currentAlbum.sectionKind === "date" ? "✓" : ""}</span>{t("By date")}
+              <button role="menuitemradio" aria-checked={currentAlbum.display === "inline"} onclick={() => setDisplay("inline")}
+                title={t("Show their photos here, under a heading each")}>
+                <span class="check">{currentAlbum.display === "inline" ? "✓" : ""}</span>{t("Show photos")}
               </button>
-              <button role="menuitemradio" aria-checked={currentAlbum.sectionKind === "name"} onclick={() => setSectionKind("name")}
-                title={t("Sections in order of their names")}>
-                <span class="check">{currentAlbum.sectionKind === "name" ? "✓" : ""}</span>{t("By name")}
+              <button role="menuitemradio" aria-checked={currentAlbum.display === "tiles"} onclick={() => setDisplay("tiles")}
+                title={t("Show them as album tiles")}>
+                <span class="check">{currentAlbum.display === "tiles" ? "✓" : ""}</span>{t("Show as tiles")}
               </button>
+              <hr />
+              {#each [["date", t("Oldest first")], ["newest", t("Newest first")], ["name", t("By name")]] as [order, label] (order)}
+                <button role="menuitemradio" aria-checked={currentAlbum.childOrder === order} onclick={() => setChildOrder(order as ChildOrder)}>
+                  <span class="check">{currentAlbum.childOrder === order ? "✓" : ""}</span>{label}
+                </button>
+              {/each}
             </div>
           {/if}
         </span>
-        {#if store.sort === "section" && store.sections.length}
-          <button onclick={toggleAllSections}>{allCollapsed ? t("Expand all") : t("Collapse all")}</button>
+        {#if byChildren}
+          <button onclick={toggleAllChildren}>{allCollapsed ? t("Expand all") : t("Collapse all")}</button>
         {/if}
       {/if}
-    {/if}
-    {#if currentAlbum}
+      <AlbumMove album={currentAlbum} />
       {@const pinned = currentAlbum.shortcut != null}
       <button class="pin" class:on={pinned} title={pinned ? t("Remove from shortcuts") : t("Add to shortcuts")}
-        onclick={() => store.mutate(() => api.setShortcut("album", currentAlbum.id, !pinned))}>{pinned ? "★" : "☆"}</button>
-    {/if}
-    {#if currentAlbum && store.categories.length}
-      <select title={t("Category")} value={currentAlbum.categoryId ?? ""}
-        onchange={(e) => {
-          const v = e.currentTarget.value;
-          store.mutate(() => api.setAlbumCategory([currentAlbum.id], v ? Number(v) : null));
-        }}>
-        <option value="">{t("No category")}</option>
-        {#each store.categoryTree() as { category: c, depth } (c.id)}
-          <option value={c.id}>{"\u00a0\u00a0".repeat(depth)}{c.name}</option>
-        {/each}
-      </select>
+        onclick={() => store.mutate(() => api.setShortcut(currentAlbum.id, !pinned))}>{pinned ? "★" : "☆"}</button>
     {/if}
     {#if markView && list.total > 0}
       <button class:danger={markView === "x"} class:primary={markView !== "x"}
@@ -347,7 +370,7 @@
       <option value="takenAsc">{t("Oldest first")}</option>
       <option value="importedDesc">{t("Recently added")}</option>
       <option value="ratingDesc">{t("Highest rated")}</option>
-      {#if albumId != null}<option value="section">{t("By section")}</option>{/if}
+      {#if currentAlbum?.display === "inline" && inside.length}<option value="children">{t("By album inside")}</option>{/if}
     </select>
     <input type="range" min="100" max="360" step="20" bind:value={store.thumbSize} title={t("Thumbnail size")} />
   </header>
@@ -403,23 +426,22 @@
             <AlbumOptions />
           </select>
         {/if}
-        {#if albumId != null}
+        {#if albumId != null && currentAlbum}
           <select
             onchange={(e) => {
               const v = e.currentTarget.value;
               e.currentTarget.value = "";
-              if (v === "new") newSectionName = "";
-              else if (v) moveToSection(v === "none" ? null : Number(v));
+              if (v === "new") newChildName = "";
+              else if (v) moveTo(Number(v));
             }}>
-            <option value="">{t("Move to section…")}</option>
-            <!-- Photos only go in sections without sub-sections; the others just show the tree. -->
-            {#each store.sections as s (s.id)}
-              <option value={s.id} disabled={s.subsections > 0}>{"\u00a0\u00a0\u00a0".repeat(s.depth)}{s.name}</option>
+            <option value="">{t("Move to album inside…")}</option>
+            {#each inside as a (a.id)}
+              <option value={a.id}>{"\u00a0\u00a0".repeat(a.depth - currentAlbum.depth - 1)}{a.name}</option>
             {/each}
-            {#if store.sections.length}<option value="none">{t("No section")}</option>{/if}
-            <option value="new">{t("New section…")}</option>
+            {#if inside.length}<option value={currentAlbum.id}>{t("{name} itself", { name: currentAlbum.name })}</option>{/if}
+            <option value="new">{t("New album inside…")}</option>
           </select>
-          <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected))}>{t("Remove from album")}</button>
+          <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected, true))}>{t("Remove from album")}</button>
           {#if selected.length === 1}
             <button onclick={() => store.mutate(() => api.setAlbumCover(albumId, selected[0]), t("Cover set"))}>{t("Set as cover")}</button>
           {/if}
@@ -432,28 +454,35 @@
   {/if}
 
   <div class="body">
-    {#if !list.loaded}
-      <div></div>
-    {:else if list.total === 0}
-      <div class="empty">
-        {#if store.hasQuery}
-          <p>{t("No photos match the current filters.")}</p>
-          <button onclick={() => store.clearQuery()}>{t("Clear filters")}</button>
-        {:else if store.view.kind === "library"}
-          <p>{t("Your library is empty.")}</p>
-          <button class="primary" onclick={() => store.openImport()}>{t("Add photos")}</button>
-        {:else if inTrash}
-          <p>{t("Trash is empty.")}</p>
-        {:else}
-          <p>{t("Nothing here yet.")}</p>
-        {/if}
-      </div>
-    {:else}
-      <VirtualGrid bind:this={grid} {list} onselect={select} onopen={(i) => (viewerIndex = i)}
-        ondayaction={inTrash ? undefined : dayAction} showOrigin={albumId != null}
-        onsection={albumId != null && store.sort === "section" ? onsection : undefined}
-        collapsed={collapsedSections} ontoggle={albumId != null && store.sort === "section" ? toggleSection : undefined} />
+    {#if tiles.length}
+      <div class="tiles" class:full={list.loaded && list.total === 0}><AlbumTiles albums={tiles} from={albumId} /></div>
     {/if}
+    <div class="photos">
+      {#if !list.loaded}
+        <div></div>
+      {:else if list.total === 0}
+        {#if !tiles.length}
+          <div class="empty">
+            {#if store.hasQuery}
+              <p>{t("No photos match the current filters.")}</p>
+              <button onclick={() => store.clearQuery()}>{t("Clear filters")}</button>
+            {:else if store.view.kind === "library"}
+              <p>{t("Your library is empty.")}</p>
+              <button class="primary" onclick={() => store.openImport()}>{t("Add photos")}</button>
+            {:else if inTrash}
+              <p>{t("Trash is empty.")}</p>
+            {:else}
+              <p>{t("Nothing here yet.")}</p>
+            {/if}
+          </div>
+        {/if}
+      {:else}
+        <VirtualGrid bind:this={grid} {list} onselect={select} onopen={(i) => (viewerIndex = i)}
+          ondayaction={inTrash ? undefined : dayAction} showOrigin={albumId != null}
+          onalbum={byChildren ? onalbum : undefined} ownLabel={t("Only in {name}", { name: currentAlbum?.name ?? "" })}
+          collapsed={collapsedAlbums} ontoggle={byChildren ? toggleChild : undefined} />
+      {/if}
+    </div>
   </div>
 </section>
 
@@ -470,12 +499,19 @@
   input[type="range"] { width: 100px; }
   .selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px;
     background: var(--accent-bg); border-bottom: 1px solid var(--border); }
-  .body { flex: 1; min-height: 0; }
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .tiles { flex-shrink: 0; max-height: 45%; overflow-y: auto; padding: 16px; border-bottom: 1px solid var(--border); }
+  .tiles.full { flex: 1; max-height: none; border-bottom: none; }
+  .photos { flex: 1; min-height: 0; }
+  .path { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+  .path .link { color: var(--muted); white-space: nowrap; }
+  .path .link:hover { color: inherit; }
+  .path .sep { color: var(--muted); }
   .marks { display: inline-flex; gap: 3px; }
   .marks button { padding: 0 7px; height: 26px; line-height: 26px; border: none; }
   .marks .unmark { background: var(--cell); color: var(--muted); }
   .albumname { width: 200px; }
-  .secwrap { position: relative; }
+  .menuwrap { position: relative; }
   .pin.on { color: var(--star); }
   .menu { position: absolute; right: 0; top: 100%; z-index: 20; display: flex; flex-direction: column; min-width: 170px;
     margin-top: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;

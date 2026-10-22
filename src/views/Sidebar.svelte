@@ -5,7 +5,7 @@
   import { basename } from "../lib/format";
   import { store } from "../lib/store.svelte";
   import Wordmark from "../lib/Wordmark.svelte";
-  import type { Album, Category, View } from "../lib/types";
+  import type { View } from "../lib/types";
 
   /** Shortcut album that dragged photos would be added to. */
   let dropTarget = $state<number | null>(null);
@@ -14,13 +14,8 @@
 
   const is = (v: View) => JSON.stringify(v) === JSON.stringify(store.view);
 
-  /** Pinned albums and categories, in the order they were pinned. */
-  const shortcuts = $derived(
-    [
-      ...store.albums.filter((a) => a.shortcut != null).map((album) => ({ order: album.shortcut!, album, category: null })),
-      ...store.categories.filter((c) => c.shortcut != null).map((category) => ({ order: category.shortcut!, album: null, category })),
-    ].sort((x, y) => x.order - y.order) as { order: number; album: Album | null; category: Category | null }[],
-  );
+  /** Pinned albums, in the order they were pinned. */
+  const shortcuts = $derived(store.albums.filter((a) => a.shortcut != null).sort((x, y) => x.shortcut! - y.shortcut!));
 
   function drop(e: DragEvent, albumId: number) {
     dropTarget = null;
@@ -81,45 +76,28 @@
 
   <div class="section">
     <div class="heading">{t("Shortcuts")}</div>
-    {#each shortcuts as sc (sc.album ? `a${sc.album.id}` : `c${sc.category?.id}`)}
-      {#if sc.album}
-        {@const a = sc.album}
-        <div class="item album" class:active={is({ kind: "album", id: a.id })} class:drop={dropTarget === a.id}
-          role="button" tabindex="0"
-          onclick={() => store.setView({ kind: "album", id: a.id })}
-          onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "album", id: a.id })}
-          ondragover={(e) => {
-            if (!e.dataTransfer?.types.includes(PHOTOS_MIME)) return;
-            e.preventDefault();
-            dropTarget = a.id;
-          }}
-          ondragleave={() => (dropTarget = null)}
-          ondrop={(e) => drop(e, a.id)}>
-          {#if a.cover}<img src={src(a.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
-          <span class="name">{a.name}</span>
-          <small>{a.count}</small>
-          <button class="icon del" title={t("Remove from shortcuts")} onclick={(e) => {
-            e.stopPropagation();
-            store.mutate(() => api.setShortcut("album", a.id, false));
-          }}>×</button>
-        </div>
-      {:else if sc.category}
-        {@const c = sc.category}
-        <div class="item category" class:active={is({ kind: "category", id: c.id })} role="button" tabindex="0"
-          title={store.categoryLabel(c.id)}
-          onclick={() => store.setView({ kind: "category", id: c.id })}
-          onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "category", id: c.id })}>
-          {#if c.cover}<img src={src(c.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
-          <span class="name">{c.name}</span>
-          <small>{t("{n} album(s)", { n: store.albumsUnder(c.id).length })}</small>
-          <button class="icon del" title={t("Remove from shortcuts")} onclick={(e) => {
-            e.stopPropagation();
-            store.mutate(() => api.setShortcut("category", c.id, false));
-          }}>×</button>
-        </div>
-      {/if}
+    {#each shortcuts as a (a.id)}
+      <div class="item album" class:active={is({ kind: "album", id: a.id })} class:drop={dropTarget === a.id}
+        role="button" tabindex="0" title={store.albumLabel(a.id)}
+        onclick={() => store.setView({ kind: "album", id: a.id })}
+        onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "album", id: a.id })}
+        ondragover={(e) => {
+          if (!e.dataTransfer?.types.includes(PHOTOS_MIME)) return;
+          e.preventDefault();
+          dropTarget = a.id;
+        }}
+        ondragleave={() => (dropTarget = null)}
+        ondrop={(e) => drop(e, a.id)}>
+        {#if a.cover}<img src={src(a.cover)} alt="" />{:else}<span class="nocover"></span>{/if}
+        <span class="name">{a.name}</span>
+        <small>{a.total}</small>
+        <button class="icon del" title={t("Remove from shortcuts")} onclick={(e) => {
+          e.stopPropagation();
+          store.mutate(() => api.setShortcut(a.id, false));
+        }}>×</button>
+      </div>
     {:else}
-      <p class="hint">{t("Pin albums or categories with ☆ to keep them here.")}</p>
+      <p class="hint">{t("Pin albums with ☆ to keep them here.")}</p>
     {/each}
   </div>
 

@@ -143,7 +143,7 @@
       <h3>{t("Albums")}</h3>
       <div class="chips">
         {#each detail?.albums ?? [] as a (a.id)}
-          <span class="chip">{a.name}{#if detail?.sections[a.id]} · {detail.sections[a.id]}{/if}<button onclick={() => store.mutate(() => api.removeFromAlbum(a.id, [p.id]))} aria-label={t("Remove from album")}>×</button></span>
+          <span class="chip">{detail?.paths[a.id] ?? a.name}<button onclick={() => store.mutate(() => api.removeFromAlbum(a.id, [p.id]))} aria-label={t("Remove from album")}>×</button></span>
         {/each}
       </div>
       {#if store.albums.length}

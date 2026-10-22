@@ -55,75 +55,56 @@ export interface Tag {
   count: number;
 }
 
+/** An album holds photos, other albums, or both (Japan › Kyoto › Day 2). */
 export interface Album {
   id: number;
   name: string;
   createdAt: string;
-  count: number;
-  cover: string | null;
-  /** The category the album is filed in, if any. */
-  categoryId: number | null;
-  /** Number of sections the album is split into. */
-  sections: number;
-  /** How the sections are ordered: by their first photo, or by name. */
-  sectionKind: SectionKind;
-  /** When pinned to the sidebar: its place among the shortcuts (lower first). */
-  shortcut: number | null;
-}
-
-export type SectionKind = "date" | "name";
-
-/** A named part of an album, like "Kyoto" in "2019 Japan", or "Day 2" inside Kyoto. */
-export interface Section {
-  id: number;
-  name: string;
-  /** The section it is in, if any. */
+  /** The album it is inside, if any. */
   parentId: number | null;
-  /** How deep it is nested (0 at the top). */
+  /** How deep it is (0 at the top). `listAlbums` returns the tree, each album followed by the ones inside it. */
   depth: number;
-  /** Sections directly inside it; photos only go in sections with none. */
-  subsections: number;
-  /** Photos in it and its sub-sections. */
+  /** Photos directly in it. */
   count: number;
-}
-
-/** A box for albums and other categories, like "Travel" or "Travel › Japan". */
-export interface Category {
-  id: number;
-  name: string;
-  /** The category it is inside, if any. */
-  parentId: number | null;
-  /** Albums directly in it. */
-  albums: number;
-  /** Categories directly inside it. */
-  categories: number;
+  /** Photos in it and every album inside it (each counted once). */
+  total: number;
+  /** Albums directly inside it. */
+  children: number;
   cover: string | null;
+  childOrder: ChildOrder;
+  display: AlbumDisplay;
   /** When pinned to the sidebar: its place among the shortcuts (lower first). */
   shortcut: number | null;
 }
+
+/** How the albums inside an album are ordered: oldest first, newest first, or by name. */
+export type ChildOrder = "date" | "newest" | "name";
+
+/** How an album's page shows the albums inside: their photos under a heading each, or tiles. */
+export type AlbumDisplay = "inline" | "tiles";
 
 export interface PhotoDetail {
   photo: Photo;
   tags: Tag[];
   albums: Album[];
-  /** The photo's section path ("Kyoto › Day 2") in each album it has one in, keyed by album id. */
-  sections: Record<number, string>;
+  /** Each of `albums` with the albums it is inside ("Japan › Kyoto"), keyed by album id. */
+  paths: Record<number, string>;
 }
 
 export interface Bucket {
   day: string;
   count: number;
-  /** When sorted by section: the section id, or 0 for the photos in none. */
-  section: number | null;
-  /** When sorted by section: the section name (empty for no section). */
+  /** When sorted by the albums inside: that album's id, or 0 for the album's own photos. */
+  album: number | null;
+  /** When sorted by the albums inside: the album's name (empty for the album's own photos). */
   label: string;
-  /** When sorted by section: how deep the section is nested (0 at the top). */
+  /** When sorted by the albums inside: how deep it is (0 right inside the album shown). */
   depth: number;
-  /** When sorted by section: the section it is in, if any. */
+  /** When sorted by the albums inside: the album it is in, unless that is the album shown. */
   parent: number | null;
-  /** When sorted by section: number of sections directly inside it. */
-  subsections: number;
-  /** Photos in it and its sub-sections (`count` is only the ones directly in it). */
+  /** When sorted by the albums inside: number of albums directly inside it. */
+  children: number;
+  /** Photos in it and the albums inside it (`count` is only the ones placed directly in it). */
   total: number;
 }
 
@@ -153,13 +134,12 @@ export interface Filter {
   trashed: boolean;
 }
 
-/** "section" only applies inside an album (elsewhere it sorts oldest first). */
-export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "section";
+/** "children" (by the albums inside) only applies inside an album (elsewhere it sorts oldest first). */
+export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "children";
 
-/** What a folder becomes when adding organized folders: a category (albums below it are
- * filed in it), an album, a section of the album above, part of the folder above ("parent"),
- * or not added ("skip"). */
-export type FolderRole = "category" | "album" | "section" | "parent" | "skip";
+/** What a folder becomes when adding organized folders: an album (inside the album of the
+ * folder above), part of the folder above ("parent"), or not added ("skip"). */
+export type FolderRole = "album" | "parent" | "skip";
 
 /** A folder holding photos (directly or below), for planning an organized-folders import. */
 export interface FolderInfo {
@@ -187,9 +167,9 @@ export interface ImportRecord {
   cancelled: boolean;
   /** Each source folder was turned into an album. */
   folderAlbums: boolean;
-  /** Subfolders were turned into sections of those albums. */
+  /** Subfolders were turned into sections (imports from before albums nested). */
   folderSections: boolean;
-  /** The source folder itself was the one album, its subfolders sections. */
+  /** The source folder itself was the one album. */
   singleAlbum: boolean;
   /** What each folder became (path inside the source folder → role), for adding it again. */
   folderPlan: Record<string, FolderRole> | null;
@@ -224,7 +204,6 @@ export type View =
   | { kind: "albums" }
   | { kind: "favorites" }
   | { kind: "album"; id: number }
-  | { kind: "category"; id: number }
   | { kind: "tag"; id: number }
   | { kind: "imports" }
   | { kind: "import"; id: number }

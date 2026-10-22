@@ -72,7 +72,7 @@
             {/if}
             {#if imp.folderAlbums}
               <span class="muted">
-                {imp.singleAlbum ? t("Folder → one album + sections") : imp.folderSections ? t("Folders → albums + sections") : t("Folders → albums")}
+                {imp.singleAlbum ? t("Folder → one album") : imp.folderSections ? t("Folders → albums + sections") : t("Folders → albums")}
               </span>
             {/if}
             {#if imp.photoCount !== imp.added}

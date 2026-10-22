@@ -681,6 +681,12 @@ fn albums_nest() {
     // Deleting an album moves the albums inside it up a level; photos stay in the library.
     queries::delete_album(&lib, japan).unwrap();
     assert_eq!(album_tree(&lib), vec![("Travel".into(), 0, 0, 2), ("Kyoto".into(), 1, 2, 2)]);
+    // An album inside another hands its photos up too, so they stay on that album's page.
+    let day2 = queries::create_album(&lib, "Day 2", Some(kyoto)).unwrap();
+    queries::move_photos(&lib, kyoto, day2, &ids[1..2]).unwrap();
+    assert_eq!(album_named(&lib, "Kyoto").count, 1);
+    queries::delete_album(&lib, day2).unwrap();
+    assert_eq!(album_named(&lib, "Kyoto").count, 2);
     queries::delete_album(&lib, travel).unwrap();
     assert_eq!(album_tree(&lib), vec![("Kyoto".into(), 0, 2, 2)]);
     assert_eq!(queries::counts(&lib).unwrap().all, 3);

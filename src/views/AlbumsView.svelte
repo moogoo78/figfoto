@@ -1,58 +1,13 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
-  import { ask } from "@tauri-apps/plugin-dialog";
-  import { api, src } from "../lib/api";
-  import CategoryMove from "../lib/CategoryMove.svelte";
+  import { api } from "../lib/api";
+  import AlbumTiles from "../lib/AlbumTiles.svelte";
   import { store } from "../lib/store.svelte";
-  import type { Album, Category } from "../lib/types";
 
-  /** Name being typed for a new album or category. */
+  /** Name being typed for a new album. */
   let newAlbum = $state<string | null>(null);
-  let newCategory = $state<string | null>(null);
-  /** The category a new category goes in (null: top level). */
-  let newCategoryIn = $state<number | null>(null);
-  /** Album or category being renamed, and its name so far. */
-  let renaming = $state<{ kind: "album" | "category"; id: number } | null>(null);
-  let renameValue = $state("");
-  /** Where a dragged album or category would land: a category id, or "none" (top level). */
-  let categoryDrop = $state<number | "none" | null>(null);
-  /** Category being dragged (its id can't be read from the drag until the drop). */
-  let draggedCategory: number | null = null;
-  /** Album that dragged photos would be added to. */
-  let photoDrop = $state<number | null>(null);
 
-  const ALBUM_MIME = "application/x-foto-album";
-  const CATEGORY_MIME = "application/x-foto-category";
-  const PHOTOS_MIME = "application/x-foto-ids";
-  const carries = (e: DragEvent, mime: string) => !!e.dataTransfer?.types.includes(mime);
-
-  const groups = $derived(store.albumsByCategory());
-
-  // Collapsed categories ("No category" is 0), remembered per library in this browser only.
-  const collapseKey = $derived(`figfoto.collapsedCategories:${store.root}`);
-  let collapsed = $state<number[]>([]);
-  $effect(() => {
-    try {
-      collapsed = JSON.parse(localStorage.getItem(collapseKey) ?? "[]");
-    } catch {
-      collapsed = [];
-    }
-  });
-  function saveCollapsed(ids: number[]) {
-    collapsed = ids;
-    try {
-      localStorage.setItem(collapseKey, JSON.stringify(collapsed));
-    } catch {
-      // Not remembered; fine.
-    }
-  }
-  function toggle(id: number) {
-    saveCollapsed(collapsed.includes(id) ? collapsed.filter((c) => c !== id) : [...collapsed, id]);
-  }
-  const allIds = $derived([...store.categories.map((c) => c.id), 0]);
-  const allCollapsed = $derived(store.categories.length > 0 && allIds.every((id) => collapsed.includes(id)));
-  /** A category inside a collapsed one isn't shown at all. */
-  const hidden = (c: Category | null) => !!c && store.categoryPath(c.id).slice(0, -1).some((up) => collapsed.includes(up.id));
+  const top = $derived(store.albumsIn(null));
 
   async function createAlbum() {
     const name = newAlbum?.trim();
@@ -63,84 +18,9 @@
     if (id) store.setView({ kind: "album", id });
   }
 
-  function startNewCategory(parentId: number | null) {
-    newCategoryIn = parentId;
-    newCategory = "";
-  }
-
-  async function createCategory() {
-    const name = newCategory?.trim();
-    newCategory = null;
-    if (name) store.mutate(() => api.createCategory(name, newCategoryIn));
-  }
-
-  function startRename(kind: "album" | "category", id: number, name: string) {
-    renaming = { kind, id };
-    renameValue = name;
-  }
-
-  function finishRename() {
-    const [r, name] = [renaming, renameValue.trim()];
-    renaming = null;
-    if (!r || !name) return;
-    store.mutate(() => (r.kind === "album" ? api.renameAlbum(r.id, name) : api.renameCategory(r.id, name)));
-  }
-
-  async function deleteAlbum(a: Album) {
-    if (await ask(t('Delete album "{name}"? Photos stay in the library.', { name: a.name }), { title: t("Delete album"), kind: "warning" })) {
-      store.mutate(() => api.deleteAlbum(a.id));
-    }
-  }
-
-  async function deleteCategory(c: Category) {
-    const msg = t('Delete category "{name}"? Its albums and categories stay and move up a level.', { name: c.name });
-    if (await ask(msg, { title: t("Delete category"), kind: "warning" })) {
-      store.mutate(() => api.deleteCategory(c.id));
-    }
-  }
-
-  /** Whether what's being dragged can be dropped on category `target` (null: top level). */
-  function canDrop(e: DragEvent, target: number | null) {
-    if (carries(e, ALBUM_MIME)) return true;
-    // A category can't go inside itself or one inside it.
-    return carries(e, CATEGORY_MIME) && draggedCategory != null && (target == null || !store.categoryAndInside(draggedCategory).has(target));
-  }
-
-  /** Files a dropped album in category `target`, or moves a dropped category inside it. */
-  function dropOnCategory(e: DragEvent, target: number | null) {
-    categoryDrop = null;
-    const album = e.dataTransfer?.getData(ALBUM_MIME);
-    const category = e.dataTransfer?.getData(CATEGORY_MIME);
-    if (album) {
-      e.preventDefault();
-      store.mutate(() => api.setAlbumCategory([Number(album)], target));
-    } else if (category && canDrop(e, target)) {
-      e.preventDefault();
-      store.mutate(() => api.moveCategory(Number(category), target));
-    }
-    draggedCategory = null;
-  }
-
-  function dropPhotos(e: DragEvent, albumId: number) {
-    photoDrop = null;
-    const raw = e.dataTransfer?.getData(PHOTOS_MIME);
-    if (!raw) return;
-    e.preventDefault();
-    const ids = JSON.parse(raw) as number[];
-    store.mutate(() => api.addToAlbum(albumId, ids), t("Added {n} photo(s)", { n: ids.length }));
-  }
-
   const focus = (el: HTMLInputElement) => {
     el.focus();
     el.select();
-  };
-  const categoryKeys = (e: KeyboardEvent) => {
-    if (e.key === "Enter") createCategory();
-    if (e.key === "Escape") newCategory = null;
-  };
-  const renameKeys = (e: KeyboardEvent) => {
-    if (e.key === "Enter") finishRename();
-    if (e.key === "Escape") renaming = null;
   };
 </script>
 
@@ -149,125 +29,23 @@
     <h1>{t("Albums")}</h1>
     <span class="count">{t("{n} album(s)", { n: store.albums.length })}</span>
     <span class="grow"></span>
-    {#if newCategory != null && newCategoryIn == null}
-      <input class="name-input" placeholder={t("Category name (e.g. Travel)")} bind:value={newCategory} use:focus onblur={createCategory}
-        onkeydown={categoryKeys} />
-    {:else if newAlbum != null}
+    {#if newAlbum != null}
       <input class="name-input" placeholder={t("Album name")} bind:value={newAlbum} use:focus onblur={createAlbum}
         onkeydown={(e) => {
           if (e.key === "Enter") createAlbum();
           if (e.key === "Escape") newAlbum = null;
         }} />
     {:else}
-      {#if store.categories.length}
-        <button onclick={() => saveCollapsed(allCollapsed ? [] : allIds)}>{allCollapsed ? t("Expand all") : t("Collapse all")}</button>
-      {/if}
-      <button onclick={() => startNewCategory(null)}>＋ {t("New category")}</button>
       <button class="primary" onclick={() => (newAlbum = "")}>＋ {t("New album")}</button>
     {/if}
   </header>
 
   <div class="body">
-    {#each groups as g (g.category?.id ?? 0)}
-      {@const c = g.category}
-      {@const open = !collapsed.includes(c?.id ?? 0)}
-      {#if hidden(c)}
-        <!-- Inside a collapsed category. -->
-      {:else}
-      {#if c || store.categories.length}
-        {@const key = c?.id ?? "none"}
-        <!-- Clicking the heading's background toggles it too; the caret is the keyboard way. -->
-        <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-        <h2 class:drop={categoryDrop === key} style:margin-left="{g.depth * 24}px" draggable={!!c}
-          ondragstart={(e) => {
-            if (!c) return;
-            draggedCategory = c.id;
-            e.dataTransfer?.setData(CATEGORY_MIME, String(c.id));
-          }}
-          ondragend={() => (draggedCategory = null)}
-          ondragover={(e) => {
-            if (!canDrop(e, c?.id ?? null)) return;
-            e.preventDefault();
-            categoryDrop = key;
-          }}
-          ondragleave={() => categoryDrop === key && (categoryDrop = null)}
-          ondrop={(e) => dropOnCategory(e, c?.id ?? null)}
-          onclick={(e) => e.target === e.currentTarget && toggle(c?.id ?? 0)}>
-          <button class="link caret" aria-label={open ? t("Collapse") : t("Expand")} aria-expanded={open}
-            onclick={() => toggle(c?.id ?? 0)}>{open ? "▾" : "▸"}</button>
-          {#if c && renaming?.kind === "category" && renaming.id === c.id}
-            <input class="name-input" bind:value={renameValue} use:focus onblur={finishRename} onkeydown={renameKeys} />
-          {:else if c}
-            <button class="link name" title={t("Double-click to rename")} onclick={() => store.setView({ kind: "category", id: c.id })}
-              ondblclick={() => startRename("category", c.id, c.name)}>{c.name}</button>
-          {:else}
-            <span class="name none">{t("No category")}</span>
-          {/if}
-          <small>{c && !open ? t("{n} album(s)", { n: store.albumsUnder(c.id).length }) : g.albums.length}</small>
-          {#if c}
-            <button class="icon add" title={t("New category inside")} onclick={() => startNewCategory(c.id)}>＋</button>
-            <span class="mover"><CategoryMove category={c} /></span>
-            <button class="icon pin" class:on={c.shortcut != null}
-              title={c.shortcut != null ? t("Remove from shortcuts") : t("Add to shortcuts")}
-              onclick={() => store.mutate(() => api.setShortcut("category", c.id, c.shortcut == null))}>{c.shortcut != null ? "★" : "☆"}</button>
-            <button class="icon del" title={t("Delete category")} onclick={() => deleteCategory(c)}>×</button>
-          {/if}
-        </h2>
-        {#if c && newCategory != null && newCategoryIn === c.id}
-          <input class="name-input sub-input" style:margin-left="{(g.depth + 1) * 24}px" placeholder={t("Category name (e.g. Japan)")}
-            bind:value={newCategory} use:focus onblur={createCategory} onkeydown={categoryKeys} />
-        {/if}
-      {/if}
-      {#if open || !store.categories.length}
-      <div class="grid" style:margin-left="{g.depth * 24}px">
-        {#each g.albums as a (a.id)}
-          <div class="tile" class:drop={photoDrop === a.id} role="button" tabindex="0" draggable="true"
-            ondragstart={(e) => e.dataTransfer?.setData(ALBUM_MIME, String(a.id))}
-            onclick={() => store.setView({ kind: "album", id: a.id })}
-            onkeydown={(e) => e.key === "Enter" && store.setView({ kind: "album", id: a.id })}
-            ondragover={(e) => {
-              if (!carries(e, PHOTOS_MIME)) return;
-              e.preventDefault();
-              photoDrop = a.id;
-            }}
-            ondragleave={() => photoDrop === a.id && (photoDrop = null)}
-            ondrop={(e) => dropPhotos(e, a.id)}>
-            <span class="cover">
-              {#if a.cover}<img src={src(a.cover)} alt="" draggable="false" />{:else}<span class="nocover"></span>{/if}
-              <button class="icon pin" class:on={a.shortcut != null}
-                title={a.shortcut != null ? t("Remove from shortcuts") : t("Add to shortcuts")}
-                onclick={(e) => {
-                  e.stopPropagation();
-                  store.mutate(() => api.setShortcut("album", a.id, a.shortcut == null));
-                }}>{a.shortcut != null ? "★" : "☆"}</button>
-              <button class="icon del" title={t("Delete album")} onclick={(e) => {
-                e.stopPropagation();
-                deleteAlbum(a);
-              }}>×</button>
-            </span>
-            {#if renaming?.kind === "album" && renaming.id === a.id}
-              <input class="tile-input" bind:value={renameValue} use:focus onblur={finishRename} onkeydown={renameKeys}
-                onclick={(e) => e.stopPropagation()} />
-            {:else}
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <strong title={t("Double-click to rename")} ondblclick={(e) => {
-                e.stopPropagation();
-                startRename("album", a.id, a.name);
-              }}>{a.name}</strong>
-            {/if}
-            <small>{t("{n} photos", { n: a.count })}</small>
-          </div>
-        {:else}
-          {#if c && !c.categories}<p class="empty">{t("Drag albums here to file them in this category.")}</p>{/if}
-        {/each}
-      </div>
-      {/if}
-      {/if}
-    {/each}
-    {#if !store.albums.length}
-      <p class="empty">{t("No albums yet. Make one here, or from photos you select.")}</p>
-    {:else if store.categories.length}
-      <p class="hint">{t("Drag an album onto a category to file it there; drag a category onto another to put it inside.")}</p>
+    {#if top.length}
+      <AlbumTiles albums={top} />
+      <p class="hint">{t("Drag an album onto another to put it inside; open an album to see the albums inside it.")}</p>
+    {:else}
+      <p class="hint">{t("No albums yet. Make one here, or from photos you select.")}</p>
     {/if}
   </div>
 </section>
@@ -278,32 +56,8 @@
   h1 { font-size: 18px; margin: 0; }
   .count { color: var(--muted); font-size: 13px; }
   .grow { flex: 1; }
-  /* Explicit widths: some WebKitGTK builds otherwise squeeze a text field in a flex row to a sliver. */
+  /* Explicit width: some WebKitGTK builds otherwise squeeze a text field in a flex row to a sliver. */
   .name-input { width: 240px; flex-shrink: 0; }
-  .tile-input { width: 100%; }
-  .body { flex: 1; overflow-y: auto; padding: 8px 16px 16px; }
-  h2 { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; padding: 4px 6px; font-size: 15px; border-radius: 6px; }
-  h2.drop, .tile.drop .cover { outline: 2px dashed var(--accent); outline-offset: 2px; }
-  h2 .name { font-size: 15px; font-weight: 600; color: inherit; }
-  h2 .none { color: var(--muted); font-weight: 400; }
-  h2 small { color: var(--muted); font-size: 12px; font-weight: 400; }
-  h2 .caret { width: 18px; font-size: 11px; color: var(--muted); }
-  h2[draggable="true"] { cursor: grab; }
-  .sub-input { display: block; margin-bottom: 8px; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-  .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; cursor: pointer; }
-  .cover { position: relative; display: block; }
-  .cover img, .nocover { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--cell); }
-  .tile:hover img, .tile:hover .nocover { filter: brightness(1.12); outline: 2px solid var(--accent); }
-  .tile strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tile small { color: var(--muted); font-size: 12px; }
-  .icon { background: none; border: none; color: var(--muted); padding: 0 4px; font-size: 15px; cursor: pointer; }
-  .cover .icon { position: absolute; top: 6px; padding: 2px 6px; border-radius: 6px; background: rgb(0 0 0 / 0.55); color: #fff; }
-  .cover .pin { left: 6px; }
-  .cover .del { right: 6px; }
-  .pin.on { color: var(--star); visibility: visible; }
-  .pin, .del, .add, .mover { visibility: hidden; }
-  h2:hover .mover, .mover:focus-within { visibility: visible; }
-  .tile:hover .icon, h2:hover .icon { visibility: visible; }
-  .empty, .hint { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin: 4px 0; }
+  .body { flex: 1; overflow-y: auto; padding: 16px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
 </style>
