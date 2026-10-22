@@ -659,6 +659,37 @@ fn albums_group_into_topics() {
 }
 
 #[test]
+fn albums_and_topics_pin_to_shortcuts() {
+    let Env { _tmp, lib, .. } = env();
+    let kyoto = queries::create_album(&lib, "Kyoto").unwrap();
+    let nara = queries::create_album(&lib, "Nara").unwrap();
+    let travel = queries::create_topic(&lib, "Travel").unwrap();
+    let pinned = || -> (Vec<(String, i64)>, Vec<(String, i64)>) {
+        let albums = queries::list_albums(&lib).unwrap().into_iter().filter_map(|a| Some((a.name, a.shortcut?))).collect();
+        let topics = queries::list_topics(&lib).unwrap().into_iter().filter_map(|t| Some((t.name, t.shortcut?))).collect();
+        (albums, topics)
+    };
+    assert_eq!(pinned(), (vec![], vec![]));
+
+    queries::set_shortcut(&lib, "album", nara, true).unwrap();
+    queries::set_shortcut(&lib, "topic", travel, true).unwrap();
+    queries::set_shortcut(&lib, "album", kyoto, true).unwrap();
+    queries::set_shortcut(&lib, "album", nara, true).unwrap(); // already pinned: keeps its place
+    let (albums, topics) = pinned();
+    let place = |name: &str| albums.iter().chain(&topics).find(|(n, _)| n == name).unwrap().1;
+    assert!(place("Nara") < place("Travel") && place("Travel") < place("Kyoto"), "in the order pinned");
+    assert!(queries::set_shortcut(&lib, "tag", kyoto, true).is_err());
+
+    queries::set_shortcut(&lib, "album", nara, false).unwrap();
+    // Deleting an album or topic drops its shortcut.
+    queries::delete_topic(&lib, travel).unwrap();
+    assert_eq!(pinned().0.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), vec!["Kyoto"]);
+    assert!(pinned().1.is_empty());
+    queries::delete_album(&lib, kyoto).unwrap();
+    assert_eq!(pinned(), (vec![], vec![]));
+}
+
+#[test]
 fn albums_have_sections() {
     let Env { _tmp, src, lib } = env();
     three_photos(&lib, &src);
@@ -1032,6 +1063,35 @@ fn subfolders_can_become_sections() {
             row("Nara", 0, 3), row("Other", 1, 2), row("Park", 1, 1), row("Morning", 2, 1),
         ]
     );
+}
+
+#[test]
+fn the_chosen_folder_can_be_the_one_album() {
+    let Env { _tmp, src, lib } = env();
+    let photo = |i: u32, day: u32| with_exif(jpeg_bytes(&picture(i, 64, 64), 90), &format!("2021:07:{day:02} 10:00:00"), "Cam");
+    let japan_dir = src.join("2019 Japan");
+    write(&japan_dir.join("b.jpg"), &photo(0, 1));
+    write(&japan_dir.join("Kyoto/a.jpg"), &photo(1, 2));
+    write(&japan_dir.join("Kyoto/Day 2/c.jpg"), &photo(2, 3));
+    write(&japan_dir.join("Nara/Park/Morning/e.jpg"), &photo(3, 4));
+    let opts = ImportOptions { folder_albums: true, folder_sections: true, single_album: true, ..Default::default() };
+    let p = import::run(&lib, &japan_dir, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!((p.added, p.albums), (4, 1));
+    assert!(queries::list_imports(&lib).unwrap()[0].single_album);
+
+    // One album named after the chosen folder; every folder inside it is a section.
+    let albums: Vec<(String, i64)> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.count)).collect();
+    assert_eq!(albums, vec![("2019 Japan".into(), 4)]);
+    let japan = queries::list_albums(&lib).unwrap()[0].id;
+    let tree: Vec<(String, i64)> = queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.depth)).collect();
+    assert_eq!(
+        tree,
+        vec![("Kyoto".into(), 0), ("Day 2".into(), 1), ("Other".into(), 1), ("Nara".into(), 0), ("Park".into(), 1), ("Morning".into(), 2)]
+    );
+    // Photos right in the chosen folder are in the album, in no section.
+    let f = Filter { album_id: Some(japan), ..Default::default() };
+    let buckets: Vec<(Option<i64>, i64)> = queries::date_buckets(&lib, &f, Sort::Section).unwrap().into_iter().map(|b| (b.section, b.count)).collect();
+    assert_eq!(buckets.last(), Some(&(Some(0), 1)));
 }
 
 /// Inserts `n` photo rows directly (no files), spread over many days, newest id = latest photo.

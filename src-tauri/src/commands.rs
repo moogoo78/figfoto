@@ -136,6 +136,7 @@ pub async fn start_import(
     source: Option<String>,
     folder_albums: bool,
     folder_sections: bool,
+    single_album: bool,
     include_deleted: bool,
 ) -> Result<()> {
     let lib = state.lib()?;
@@ -157,7 +158,7 @@ pub async fn start_import(
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, folder_sections, include_deleted };
+        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, folder_sections, single_album, include_deleted };
         let run = || import::run(&lib, Path::new(&src), &opts, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
             .unwrap_or_else(|_| Err(AppError::msg("adding photos crashed")));
@@ -304,6 +305,11 @@ pub async fn rename_topic(state: State<'_, AppState>, id: i64, name: String) -> 
 #[tauri::command]
 pub async fn delete_topic(state: State<'_, AppState>, id: i64) -> Result<()> {
     queries::delete_topic(&*state.lib()?, id)
+}
+
+#[tauri::command]
+pub async fn set_shortcut(state: State<'_, AppState>, kind: String, id: i64, pinned: bool) -> Result<()> {
+    queries::set_shortcut(&*state.lib()?, &kind, id, pinned)
 }
 
 #[tauri::command]

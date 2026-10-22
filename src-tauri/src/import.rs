@@ -64,9 +64,12 @@ pub struct ImportOptions<'a> {
     pub folder_albums: bool,
     /// With `folder_albums`: only the folders right under the source folder become albums;
     /// photos in deeper folders go into nested sections of that album named after the rest of the
-    /// path ("Kyoto", "Kyoto / Day 1"). Photos directly in the source folder still go to an
-    /// album named after it.
+    /// path (Kyoto › Day 1). Photos directly in the source folder still go to an album named
+    /// after it.
     pub folder_sections: bool,
+    /// With `folder_sections`: the source folder itself is the one album instead, and every
+    /// folder inside it a (nested) section.
+    pub single_album: bool,
     /// Import photos even if they were deleted from the library before.
     pub include_deleted: bool,
 }
@@ -113,8 +116,14 @@ pub fn run(
     let import_id = {
         let conn = lib.conn();
         conn.execute(
-            "INSERT INTO imports (source_dir, started_at, folder_albums, folder_sections) VALUES (?1, ?2, ?3, ?4)",
-            params![src.to_string_lossy(), now(), opts.folder_albums, opts.folder_albums && opts.folder_sections],
+            "INSERT INTO imports (source_dir, started_at, folder_albums, folder_sections, single_album) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                src.to_string_lossy(),
+                now(),
+                opts.folder_albums,
+                opts.folder_albums && opts.folder_sections,
+                opts.folder_albums && opts.folder_sections && opts.single_album
+            ],
         )?;
         conn.last_insert_rowid()
     };
@@ -162,7 +171,11 @@ pub fn run(
     }
 
     let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
-    let album_of = if opts.folder_albums { folder_album_ids(lib, src, &files, opts.folder_sections)? } else { HashMap::new() };
+    let album_of = if opts.folder_albums {
+        folder_album_ids(lib, src, &files, opts.folder_sections, opts.folder_sections && opts.single_album)?
+    } else {
+        HashMap::new()
+    };
     // Photos (by hash) that end up in each album and section, added once the copying is done.
     let album_hashes = Mutex::new(BTreeMap::<(i64, Vec<String>), Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
@@ -314,12 +327,13 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
 }
 
 /// The album (and, with `sections`, the section path inside it) for each folder that directly
-/// holds one of `files`, keyed by folder.
+/// holds one of `files`, keyed by folder. With `single`, `root` itself is the album.
 fn folder_album_ids(
     lib: &Library,
     root: &Path,
     files: &[PathBuf],
     sections: bool,
+    single: bool,
 ) -> Result<HashMap<PathBuf, (i64, Vec<String>)>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
@@ -330,13 +344,20 @@ fn folder_album_ids(
             Ok(rel) if sections => rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect(),
             _ => Vec::new(),
         };
-        let (name, section) = match parts.split_first() {
-            Some((album, rest)) => (album.clone(), rest.to_vec()),
-            // A folder without a name (the root of a drive) can't name an album.
-            None => match dir.file_name() {
-                Some(name) => (name.to_string_lossy().into_owned(), Vec::new()),
+        let (name, section) = if single {
+            match root.file_name() {
+                Some(name) => (name.to_string_lossy().into_owned(), parts),
                 None => continue,
-            },
+            }
+        } else {
+            match parts.split_first() {
+                Some((album, rest)) => (album.clone(), rest.to_vec()),
+                // A folder without a name (the root of a drive) can't name an album.
+                None => match dir.file_name() {
+                    Some(name) => (name.to_string_lossy().into_owned(), Vec::new()),
+                    None => continue,
+                },
+            }
         };
         out.insert(dir.to_path_buf(), (queries::find_or_create_album(lib, &name)?, section));
     }

@@ -89,7 +89,17 @@
     }
   });
   function toggleSection(id: number) {
-    collapsedSections = collapsedSections.includes(id) ? collapsedSections.filter((c) => c !== id) : [...collapsedSections, id];
+    saveCollapsed(collapsedSections.includes(id) ? collapsedSections.filter((c) => c !== id) : [...collapsedSections, id]);
+  }
+  /** Every section of the album, and "No section" (0). */
+  const allSections = $derived([...store.sections.map((s) => s.id), 0]);
+  const allCollapsed = $derived(store.sections.length > 0 && allSections.every((id) => collapsedSections.includes(id)));
+  /** Collapses every section, or expands them all when they already are. */
+  function toggleAllSections() {
+    saveCollapsed(allCollapsed ? [] : allSections);
+  }
+  function saveCollapsed(ids: number[]) {
+    collapsedSections = ids;
     try {
       localStorage.setItem(collapseKey, JSON.stringify(collapsedSections));
     } catch {
@@ -296,7 +306,15 @@
             </div>
           {/if}
         </span>
+        {#if store.sort === "section" && store.sections.length}
+          <button onclick={toggleAllSections}>{allCollapsed ? t("Expand all") : t("Collapse all")}</button>
+        {/if}
       {/if}
+    {/if}
+    {#if currentAlbum}
+      {@const pinned = currentAlbum.shortcut != null}
+      <button class="pin" class:on={pinned} title={pinned ? t("Remove from shortcuts") : t("Add to shortcuts")}
+        onclick={() => store.mutate(() => api.setShortcut("album", currentAlbum.id, !pinned))}>{pinned ? "★" : "☆"}</button>
     {/if}
     {#if currentAlbum && store.topics.length}
       <select title={t("Topic")} value={currentAlbum.topicId ?? ""}
@@ -456,6 +474,7 @@
   .marks .unmark { background: var(--cell); color: var(--muted); }
   .albumname { width: 200px; }
   .secwrap { position: relative; }
+  .pin.on { color: var(--star); }
   .menu { position: absolute; right: 0; top: 100%; z-index: 20; display: flex; flex-direction: column; min-width: 170px;
     margin-top: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
     box-shadow: 0 4px 14px rgb(0 0 0 / 0.35); }

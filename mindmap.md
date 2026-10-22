@@ -30,7 +30,11 @@
 
             - photo already in library → added to album, no second copy
 
-            - option: subfolders → sections (2019 Japan/Kyoto)
+            - option: subfolders → nested sections (Kyoto › Day 2)
+
+               - the chosen folder is one album (pick 2019 Japan → one album)
+
+               - or each folder inside it is an album (pick Travel → 2019 Japan, 2020 Taipei…)
 
       - skip rules
 
@@ -116,11 +120,13 @@
 
       - album
 
+         - Albums page (below All photos): topics with album tiles; new / rename / delete albums and topics
+
+         - sidebar shortcuts: albums and topics pinned with ☆, in the order pinned; drop photos on a shortcut album
+
          - topic (Travel, Family…; one level, one per album)
 
-            - sidebar: collapsible groups
-
-            - file an album: drag onto a topic, or pick on the album page
+            - file an album: drag onto a topic on the Albums page, or pick on the album page
 
             - topic page: album cover tiles
 
@@ -140,7 +146,7 @@
 
             - move photos: selection bar or drag onto a heading
 
-            - collapse / expand a section (caret on the heading; remembered per album)
+            - collapse / expand a section (caret on the heading), or all at once (Collapse all / Expand all); remembered per album
 
       - tag
 

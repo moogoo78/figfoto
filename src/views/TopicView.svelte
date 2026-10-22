@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
-  import { src } from "../lib/api";
+  import { api, src } from "../lib/api";
   import { store } from "../lib/store.svelte";
 
   let { id }: { id: number } = $props();
@@ -12,6 +12,12 @@
   <header>
     <h1>{topic?.name ?? ""}</h1>
     <span class="count">{t("{n} album(s)", { n: albums.length })}</span>
+    <span class="grow"></span>
+    {#if topic}
+      {@const pinned = topic.shortcut != null}
+      <button class="pin" class:on={pinned} title={pinned ? t("Remove from shortcuts") : t("Add to shortcuts")}
+        onclick={() => store.mutate(() => api.setShortcut("topic", topic.id, !pinned))}>{pinned ? "★" : "☆"}</button>
+    {/if}
   </header>
 
   <div class="body">
@@ -22,7 +28,7 @@
         <small>{t("{n} photos", { n: a.count })}</small>
       </button>
     {:else}
-      <p class="empty">{t("Drag albums here in the sidebar, or choose a topic on the album's page.")}</p>
+      <p class="empty">{t("Drag albums onto this topic on the Albums page, or choose a topic on the album's page.")}</p>
     {/each}
   </div>
 </section>
@@ -32,6 +38,8 @@
   header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
   h1 { font-size: 18px; margin: 0; }
   .count { color: var(--muted); font-size: 13px; }
+  .grow { flex: 1; }
+  .pin.on { color: var(--star); }
   .body { flex: 1; overflow-y: auto; padding: 16px; display: grid; gap: 16px; align-content: start;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   .tile { display: flex; flex-direction: column; gap: 4px; padding: 0; border: none; background: none;

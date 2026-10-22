@@ -9,6 +9,7 @@
   import Marks from "./views/Marks.svelte";
   import Lenses from "./views/Lenses.svelte";
   import TopicView from "./views/TopicView.svelte";
+  import AlbumsView from "./views/AlbumsView.svelte";
   import Sidebar from "./views/Sidebar.svelte";
   import Welcome from "./views/Welcome.svelte";
 
@@ -35,6 +36,8 @@
             <Lenses />
           {:else if store.view.kind === "backup"}
             <Backup />
+          {:else if store.view.kind === "albums"}
+            <AlbumsView />
           {:else if store.view.kind === "topic"}
             <TopicView id={store.view.id} />
           {:else}

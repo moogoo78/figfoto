@@ -13,6 +13,8 @@
   let folderAlbums = $state(false);
   /** With folderAlbums: top folders become albums, deeper ones (nested) sections of them. */
   let folderSections = $state(false);
+  /** With folderSections: the chosen folder itself is the one album (else each folder in it is one). */
+  let singleAlbum = $state(true);
   /** Also bring back photos that were deleted from the library (trash emptied) before. */
   let includeDeleted = $state(false);
   let started = $state(false);
@@ -23,6 +25,7 @@
       source = store.importPreset.dir;
       folderAlbums = store.importPreset.folderAlbums;
       folderSections = store.importPreset.folderSections;
+      singleAlbum = store.importPreset.singleAlbum;
       store.importPreset = null;
     }
   });
@@ -39,7 +42,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin, folderAlbums, folderAlbums && folderSections, includeDeleted);
+      await api.startImport(source, origin, folderAlbums, folderAlbums && folderSections, singleAlbum, includeDeleted);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -76,7 +79,9 @@
         </div>
         {#if folderAlbums}
           <p class="hint">
-            {#if folderSections}
+            {#if folderSections && singleAlbum}
+              {t("The chosen folder becomes one album named after it, and every folder inside it becomes a section, nested like the folders (2019 Japan / Kyoto / Day 2 → album “2019 Japan”, section Kyoto › Day 2). Photos right in the chosen folder are in the album, in no section. Photos already in the library are added without a second copy.")}
+            {:else if folderSections}
               {t("Only the folders right inside the chosen folder become albums, named after them. Every folder deeper down becomes a section of that album, nested like the folders (2019 Japan / Kyoto / Day 2 → album “2019 Japan”, section Kyoto › Day 2). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.")}
             {:else}
               {t("Each folder that holds photos, including the chosen folder itself, becomes an album named after it (an album with that name is reused). Photos already in the library are added to the album without a second copy.")}
@@ -84,8 +89,20 @@
           </p>
           <label class="check">
             <input type="checkbox" bind:checked={folderSections} />
-            <span>{t("Subfolders become sections")} <small>{t("(2019 Japan/Kyoto/Day 2 → album “2019 Japan”, section Kyoto › Day 2)")}</small></span>
+            <span>{t("Subfolders become sections")} <small>{t("(Kyoto/Day 2 → section Kyoto › Day 2)")}</small></span>
           </label>
+          {#if folderSections}
+            <div class="albums" role="radiogroup" aria-label={t("Albums")}>
+              <label class="check">
+                <input type="radio" name="albums" value={true} bind:group={singleAlbum} />
+                <span>{t("The chosen folder is one album")} <small>{t("(pick “2019 Japan”: one album)")}</small></span>
+              </label>
+              <label class="check">
+                <input type="radio" name="albums" value={false} bind:group={singleAlbum} />
+                <span>{t("Each folder inside it is an album")} <small>{t("(pick “Travel”: albums “2019 Japan”, “2020 Taipei”…)")}</small></span>
+              </label>
+            </div>
+          {/if}
         {/if}
         <p class="hint">
           {t("Photos are copied into your library under")} <code>originals/YYYY/MM/DD</code>{t(". The source folder is not changed. Files already in the library are skipped.")}
@@ -168,6 +185,8 @@
   .origin :global(input) { width: 100%; }
   .check { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; font-size: 13px; cursor: pointer; }
   .check small { color: var(--muted); }
+  .albums { margin-left: 22px; }
+  .albums .check { margin-top: 8px; }
   .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
   .bar { height: 8px; border-radius: 4px; background: var(--cell); overflow: hidden; }
   .bar div { height: 100%; background: var(--accent); transition: width 0.2s; }

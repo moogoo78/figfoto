@@ -233,6 +233,19 @@ ALTER TABLE albums ADD COLUMN section_kind TEXT NOT NULL DEFAULT 'date';
 ALTER TABLE album_sections ADD COLUMN parent_id INTEGER REFERENCES album_sections(id) ON DELETE CASCADE;
 CREATE INDEX idx_album_sections_parent ON album_sections(parent_id);
 "#,
+    // v19: an organized-folders import can make the chosen folder itself the one album.
+    r#"
+ALTER TABLE imports ADD COLUMN single_album INTEGER NOT NULL DEFAULT 0;
+"#,
+    // v20: albums and topics pinned to the sidebar, in the order they were pinned.
+    r#"
+CREATE TABLE shortcuts (
+    id       INTEGER PRIMARY KEY,
+    album_id INTEGER UNIQUE REFERENCES albums(id) ON DELETE CASCADE,
+    topic_id INTEGER UNIQUE REFERENCES topics(id) ON DELETE CASCADE,
+    CHECK ((album_id IS NULL) != (topic_id IS NULL))
+);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

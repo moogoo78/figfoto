@@ -408,6 +408,8 @@ pub struct Album {
     pub sections: i64,
     /// How the sections are ordered: "date" (by their first photo) or "topic" (by name).
     pub section_kind: String,
+    /// When pinned to the sidebar: its place among the shortcuts (lower first).
+    pub shortcut: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -548,7 +550,8 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
                  ORDER BY ap.position, p.taken_at LIMIT 1)),
             a.topic_id,
             (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id),
-            a.section_kind
+            a.section_kind,
+            (SELECT id FROM shortcuts WHERE album_id = a.id)
          FROM albums a
          -- Newest first, by the latest photo taken (an empty album by when it was made).
          ORDER BY COALESCE(
@@ -568,6 +571,7 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
             topic_id: r.get(5)?,
             sections: r.get(6)?,
             section_kind: r.get(7)?,
+            shortcut: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -582,28 +586,50 @@ pub struct Topic {
     pub albums: i64,
     /// Cover of the first album (by name) that has one.
     pub cover: Option<String>,
+    /// When pinned to the sidebar: its place among the shortcuts (lower first).
+    pub shortcut: Option<i64>,
 }
 
 pub fn list_topics(lib: &Library) -> Result<Vec<Topic>> {
-    let topics: Vec<(i64, String)> = {
+    let topics: Vec<(i64, String, Option<i64>)> = {
         let conn = lib.conn();
-        let mut stmt = conn.prepare("SELECT id, name FROM topics ORDER BY name COLLATE NOCASE")?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name, (SELECT id FROM shortcuts WHERE topic_id = t.id) FROM topics t ORDER BY t.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
     let albums = list_albums(lib)?;
     Ok(topics
         .into_iter()
-        .map(|(id, name)| {
+        .map(|(id, name, shortcut)| {
             let mine = albums.iter().filter(|a| a.topic_id == Some(id));
             Topic {
                 id,
                 name,
                 albums: mine.clone().count() as i64,
                 cover: mine.filter_map(|a| a.cover.clone()).next(),
+                shortcut,
             }
         })
         .collect())
+}
+
+/// Pins an album (`kind` "album") or topic ("topic") to the sidebar, after the ones already
+/// there, or unpins it.
+pub fn set_shortcut(lib: &Library, kind: &str, id: i64, pinned: bool) -> Result<()> {
+    let column = match kind {
+        "album" => "album_id",
+        "topic" => "topic_id",
+        _ => return Err(AppError::msg("a shortcut is to an album or a topic")),
+    };
+    let conn = lib.conn();
+    if pinned {
+        conn.execute(&format!("INSERT OR IGNORE INTO shortcuts ({column}) VALUES (?1)"), [id])?;
+    } else {
+        conn.execute(&format!("DELETE FROM shortcuts WHERE {column} = ?1"), [id])?;
+    }
+    Ok(())
 }
 
 /// The topic named `name` (ignoring case), created if there is none.
@@ -1094,6 +1120,8 @@ pub struct ImportRecord {
     pub folder_albums: bool,
     /// Subfolders were turned into sections of those albums.
     pub folder_sections: bool,
+    /// The source folder itself was the one album, its subfolders sections.
+    pub single_album: bool,
     /// Photos from this import still in the library (not trashed).
     pub photo_count: i64,
     pub cover: Option<String>,
@@ -1103,13 +1131,14 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
     let conn = lib.conn();
     let mut stmt = conn.prepare(
         "SELECT i.id, i.source_dir, i.started_at, i.finished_at, i.added, i.skipped_dupes, i.failed, i.cancelled, i.folder_albums, i.skipped_deleted, i.folder_sections,
+            i.single_album,
             (SELECT COUNT(*) FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL),
             (SELECT p.hash FROM photos p WHERE p.import_id = i.id AND p.trashed_at IS NULL
                ORDER BY p.taken_at LIMIT 1)
          FROM imports i ORDER BY i.id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
-        let cover: Option<String> = r.get(12)?;
+        let cover: Option<String> = r.get(13)?;
         Ok(ImportRecord {
             id: r.get(0)?,
             source_dir: r.get(1)?,
@@ -1122,7 +1151,8 @@ pub fn list_imports(lib: &Library) -> Result<Vec<ImportRecord>> {
             folder_albums: r.get(8)?,
             skipped_deleted: r.get(9)?,
             folder_sections: r.get(10)?,
-            photo_count: r.get(11)?,
+            single_album: r.get(11)?,
+            photo_count: r.get(12)?,
             cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
         })
     })?;

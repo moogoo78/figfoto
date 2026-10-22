@@ -67,6 +67,8 @@ export interface Album {
   sections: number;
   /** How the sections are ordered: by their first photo, or by name. */
   sectionKind: SectionKind;
+  /** When pinned to the sidebar: its place among the shortcuts (lower first). */
+  shortcut: number | null;
 }
 
 export type SectionKind = "date" | "topic";
@@ -91,6 +93,8 @@ export interface Topic {
   name: string;
   albums: number;
   cover: string | null;
+  /** When pinned to the sidebar: its place among the shortcuts (lower first). */
+  shortcut: number | null;
 }
 
 export interface PhotoDetail {
@@ -163,6 +167,8 @@ export interface ImportRecord {
   folderAlbums: boolean;
   /** Subfolders were turned into sections of those albums. */
   folderSections: boolean;
+  /** The source folder itself was the one album, its subfolders sections. */
+  singleAlbum: boolean;
   /** Photos from this import still in the library. */
   photoCount: number;
   cover: string | null;
@@ -191,6 +197,7 @@ export interface ImportProgress {
 /** What the main area is showing. */
 export type View =
   | { kind: "library" }
+  | { kind: "albums" }
   | { kind: "favorites" }
   | { kind: "album"; id: number }
   | { kind: "topic"; id: number }

@@ -70,7 +70,11 @@
                 {t("{n} failed", { n: imp.failed })} {errors[imp.id] ? "▴" : "▾"}
               </button>
             {/if}
-            {#if imp.folderAlbums}<span class="muted">{imp.folderSections ? t("Folders → albums + sections") : t("Folders → albums")}</span>{/if}
+            {#if imp.folderAlbums}
+              <span class="muted">
+                {imp.singleAlbum ? t("Folder → one album + sections") : imp.folderSections ? t("Folders → albums + sections") : t("Folders → albums")}
+              </span>
+            {/if}
             {#if imp.photoCount !== imp.added}
               <span class="muted">{t("{n} still in library", { n: imp.photoCount })}</span>
             {/if}
@@ -84,7 +88,7 @@
 
         <div class="actions">
           <button disabled={!imp.photoCount} onclick={() => store.setView({ kind: "import", id: imp.id })}>{t("View photos")}</button>
-          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.folderSections)} title={t("Add from this folder again; only new files are copied")}>
+          <button onclick={() => store.openImport(imp.sourceDir, imp.folderAlbums, imp.folderSections, imp.singleAlbum)} title={t("Add from this folder again; only new files are copied")}>
             {t("Add again")}
           </button>
         </div>

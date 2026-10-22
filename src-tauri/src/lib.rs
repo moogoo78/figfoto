@@ -51,6 +51,7 @@ pub fn run() {
             rename_topic,
             delete_topic,
             set_album_topic,
+            set_shortcut,
             list_sections,
             create_section,
             rename_section,

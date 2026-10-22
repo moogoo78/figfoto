@@ -10,8 +10,8 @@ export const api = {
   openLibrary: (path: string, create: boolean) => invoke<{ root: string }>("open_library", { path, create }),
   currentLibrary: () => invoke<{ root: string } | null>("current_library"),
 
-  startImport: (src: string, source: string, folderAlbums: boolean, folderSections: boolean, includeDeleted: boolean) =>
-    invoke<void>("start_import", { src, source: source || null, folderAlbums, folderSections, includeDeleted }),
+  startImport: (src: string, source: string, folderAlbums: boolean, folderSections: boolean, singleAlbum: boolean, includeDeleted: boolean) =>
+    invoke<void>("start_import", { src, source: source || null, folderAlbums, folderSections, singleAlbum, includeDeleted }),
   cancelImport: () => invoke<void>("cancel_import"),
   listImports: () => invoke<ImportRecord[]>("list_imports"),
   importErrors: (importId: number) => invoke<{ path: string; error: string }[]>("import_errors", { importId }),
@@ -47,6 +47,8 @@ export const api = {
   deleteTopic: (id: number) => invoke<void>("delete_topic", { id }),
   /** `topicId` null takes the albums out of their topic. */
   setAlbumTopic: (albumIds: number[], topicId: number | null) => invoke<void>("set_album_topic", { albumIds, topicId }),
+  /** Pins an album or topic to the sidebar's shortcuts, or unpins it. */
+  setShortcut: (kind: "album" | "topic", id: number, pinned: boolean) => invoke<void>("set_shortcut", { kind, id, pinned }),
   listSections: (albumId: number) => invoke<Section[]>("list_sections", { albumId }),
   /** Reuses the section with that name (any case) in `parentId` (the top with null), else adds
    * one. A section holding photos hands them to an "Other" sub-section when it gets its first. */
