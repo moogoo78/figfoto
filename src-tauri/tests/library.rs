@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicBool;
 use chrono::{Local, NaiveDate, TimeZone};
 use exif::experimental::Writer;
 use exif::{Field, In, Tag, Value};
-use frutyfoto_lib::import::{self, hash_file, ImportOptions, ImportProgress};
-use frutyfoto_lib::library::Library;
-use frutyfoto_lib::queries::{self, Filter, Sort};
+use figfoto_lib::import::{self, hash_file, ImportOptions, ImportProgress};
+use figfoto_lib::library::Library;
+use figfoto_lib::queries::{self, Filter, Sort};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 
@@ -79,7 +79,7 @@ fn env() -> Env {
 }
 
 /// Empties the trash without touching the real system Trash.
-fn empty_trash(lib: &Library) -> frutyfoto_lib::error::Result<usize> {
+fn empty_trash(lib: &Library) -> figfoto_lib::error::Result<usize> {
     queries::empty_trash_with(lib, |p| Ok(std::fs::remove_file(p)?))
 }
 
@@ -257,10 +257,12 @@ fn reopening_requires_existing_library() {
 fn opens_library_with_legacy_meta_dir() {
     let tmp = tempfile::tempdir().unwrap();
     Library::open(tmp.path(), true).unwrap();
-    std::fs::rename(tmp.path().join(".frutyfoto"), tmp.path().join(".fotolake")).unwrap();
-    Library::open(tmp.path(), false).unwrap();
-    assert!(tmp.path().join(".frutyfoto/library.db").exists());
-    assert!(!tmp.path().join(".fotolake").exists());
+    for legacy in [".fotolake", ".frutyfoto"] {
+        std::fs::rename(tmp.path().join(".figfoto"), tmp.path().join(legacy)).unwrap();
+        Library::open(tmp.path(), false).unwrap();
+        assert!(tmp.path().join(".figfoto/library.db").exists());
+        assert!(!tmp.path().join(legacy).exists());
+    }
 }
 
 #[test]
@@ -370,11 +372,11 @@ fn import_history_records_each_run() {
 #[test]
 fn migration_links_existing_photos_to_their_import() {
     let tmp = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(tmp.path().join(".frutyfoto")).unwrap();
+    std::fs::create_dir_all(tmp.path().join(".figfoto")).unwrap();
     {
         // A library created before import history existed (schema v1).
-        let conn = rusqlite::Connection::open(tmp.path().join(".frutyfoto/library.db")).unwrap();
-        conn.execute_batch(frutyfoto_lib::db::MIGRATIONS[0]).unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join(".figfoto/library.db")).unwrap();
+        conn.execute_batch(figfoto_lib::db::MIGRATIONS[0]).unwrap();
         conn.execute_batch(
             "PRAGMA user_version = 1;
              INSERT INTO imports (id, source_dir, started_at, finished_at, added)
@@ -449,17 +451,17 @@ fn photos_in_old_album_folders_move_to_date_folders() {
     // A same-named file already in the date folder gets a unique name instead of being overwritten.
     write(&lib.root.join("originals/2021/07/15/p0.jpg"), b"other");
 
-    assert_eq!(frutyfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 2);
+    assert_eq!(figfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 2);
     assert_eq!(rel_of(&lib, ids[0]), "originals/2021/07/15/p0-1.jpg");
     assert_eq!(rel_of(&lib, ids[1]), "originals/2021/07/15/p1.jpg");
     assert!(lib.trash_dir().join("originals/2021/07/15/p1.jpg").is_file());
     assert!(!lib.root.join("albums").exists() && !lib.trash_dir().join("albums").exists());
-    assert_eq!(frutyfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 0);
+    assert_eq!(figfoto_lib::storage::move_out_of_album_folders(&lib).unwrap(), 0);
 }
 
 #[test]
 fn marks_are_set_filtered_and_run() {
-    use frutyfoto_lib::marks::{self, ActionKind};
+    use figfoto_lib::marks::{self, ActionKind};
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
     let find = |f: Filter| -> Vec<i64> {
@@ -516,7 +518,7 @@ fn marks_are_set_filtered_and_run() {
 
 #[test]
 fn sources_and_device_kind() {
-    use frutyfoto_lib::db::device_kind;
+    use figfoto_lib::db::device_kind;
     assert_eq!(device_kind(Some("Apple"), Some("iPhone 15 Pro")), "phone");
     assert_eq!(device_kind(Some("samsung"), Some("SM-S918B")), "phone");
     assert_eq!(device_kind(Some("SONY"), Some("ILCE-7M4")), "camera");
@@ -539,15 +541,15 @@ fn sources_and_device_kind() {
     assert_eq!(names("camera"), vec!["a.jpg"]);
     assert_eq!(names("phone"), vec!["b.jpg"]);
     assert_eq!(names("LINE"), vec!["c.jpg"]);
-    assert_eq!(frutyfoto_lib::marks::list_sources(&lib).unwrap(), vec!["LINE"]);
+    assert_eq!(figfoto_lib::marks::list_sources(&lib).unwrap(), vec!["LINE"]);
 
     let a = queries::list_photos(&lib, &Filter { origin: Some("camera".into()), ..Default::default() }, Sort::TakenAsc, 0, 1)
         .unwrap()[0]
         .clone();
     assert_eq!((a.device, a.source.as_deref()), ("camera", None));
-    frutyfoto_lib::marks::set_source(&lib, &[a.id], "Facebook").unwrap();
+    figfoto_lib::marks::set_source(&lib, &[a.id], "Facebook").unwrap();
     assert_eq!(names("Facebook"), vec!["a.jpg"]);
-    frutyfoto_lib::marks::set_source(&lib, &[a.id], "  ").unwrap();
+    figfoto_lib::marks::set_source(&lib, &[a.id], "  ").unwrap();
     assert_eq!(names("camera"), vec!["a.jpg"]);
 }
 
@@ -1088,13 +1090,13 @@ fn ids_date_span_and_toggles() {
 
     // Marks: mixed (including another mark) -> set; all carrying it -> cleared.
     let mark_of = |id: i64| queries::get_photo(&lib, id).unwrap().photo.mark;
-    frutyfoto_lib::marks::set_mark(&lib, &ids[..2], Some("1")).unwrap();
-    frutyfoto_lib::marks::set_mark(&lib, &ids[2..3], Some("x")).unwrap();
-    frutyfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
+    figfoto_lib::marks::set_mark(&lib, &ids[..2], Some("1")).unwrap();
+    figfoto_lib::marks::set_mark(&lib, &ids[2..3], Some("x")).unwrap();
+    figfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
     assert!(ids[..4].iter().all(|&id| mark_of(id).as_deref() == Some("1")));
-    frutyfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
+    figfoto_lib::marks::toggle_mark(&lib, &ids[..4], "1").unwrap();
     assert!(ids[..4].iter().all(|&id| mark_of(id).is_none()));
-    assert!(frutyfoto_lib::marks::toggle_mark(&lib, &ids[..1], "z").is_err());
+    assert!(figfoto_lib::marks::toggle_mark(&lib, &ids[..1], "z").is_err());
 }
 
 /// Timing check for a big library: `cargo test --release -- --ignored --nocapture large_library`.
@@ -1125,8 +1127,34 @@ fn large_library_queries_stay_fast() {
 }
 
 #[test]
+fn backups_from_before_the_rename_keep_working() {
+    use figfoto_lib::backup;
+    let Env { _tmp, src, lib } = env();
+    three_photos(&lib, &src);
+    let disk = _tmp.path().join("usb");
+    std::fs::create_dir_all(&disk).unwrap();
+    let no_cancel = AtomicBool::new(false);
+    let id = backup::add_target(&lib, &disk).unwrap();
+    assert_eq!(backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap().copied, 3);
+    backup::remove_target(&lib, id).unwrap();
+    // As the app made it when it was called frutyfoto.
+    let old = disk.join("frutyfoto-backup");
+    std::fs::rename(disk.join(backup::BACKUP_DIR), &old).unwrap();
+    std::fs::rename(old.join(".figfoto-backup.json"), old.join(".frutyfoto-backup.json")).unwrap();
+
+    // Picking the disk again carries on in the old folder: nothing is copied twice.
+    let id = backup::add_target(&lib, &disk).unwrap();
+    let t = &backup::list_targets(&lib).unwrap()[0];
+    assert_eq!((t.name.as_str(), t.available), ("usb", true));
+    assert!(t.path.ends_with("/frutyfoto-backup"));
+    let r = backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap();
+    assert_eq!((r.copied, r.skipped, r.errors.len()), (0, 3, 0), "{:?}", r.errors);
+    assert!(!disk.join(backup::BACKUP_DIR).exists());
+}
+
+#[test]
 fn backup_copies_new_photos_and_checks_them() {
-    use frutyfoto_lib::backup;
+    use figfoto_lib::backup;
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
     let disk = _tmp.path().join("usb");
@@ -1202,7 +1230,7 @@ fn backup_copies_new_photos_and_checks_them() {
 
 #[test]
 fn backup_refuses_other_libraries_and_missing_disks() {
-    use frutyfoto_lib::backup;
+    use figfoto_lib::backup;
     let Env { _tmp, src, lib } = env();
     three_photos(&lib, &src);
     let disk = _tmp.path().join("usb");
@@ -1235,7 +1263,7 @@ fn backup_refuses_other_libraries_and_missing_disks() {
 /// Skipped when rclone isn't installed (it is in the dev container).
 #[test]
 fn cloud_backup_copies_through_rclone() {
-    use frutyfoto_lib::{backup, cloud};
+    use figfoto_lib::{backup, cloud};
     let Env { _tmp, src, lib } = env();
     if cloud::Rclone::find(&lib).is_err() {
         eprintln!("rclone not installed; skipping");
@@ -1255,7 +1283,7 @@ fn cloud_backup_copies_through_rclone() {
     let root = bucket.join(backup::BACKUP_DIR);
     let t = &backup::list_targets(&lib).unwrap()[0];
     assert_eq!((t.kind, t.available, t.backed_up, t.total), (backup::TargetKind::Cloud, true, 0, 3));
-    assert!(t.path.ends_with("/frutyfoto-backup"));
+    assert!(t.path.ends_with("/figfoto-backup"));
     assert!(backup::add_cloud_target(&lib, &picked).is_err(), "same folder twice");
     let other = Library::open(&_tmp.path().join("other"), true).unwrap();
     assert!(backup::add_cloud_target(&other, &picked).is_err(), "another library's backup");

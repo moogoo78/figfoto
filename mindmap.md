@@ -1,4 +1,4 @@
-# frutyfoto
+# FigFoto
 
 - input
 
@@ -172,7 +172,7 @@
 
          - only copies what's new; every copy checked by hash
 
-         - readable layout: frutyfoto-backup/originals/YYYY/MM/DD
+         - readable layout: figfoto-backup/originals/YYYY/MM/DD
 
          - library DB snapshot each run (newest 5 kept)
 

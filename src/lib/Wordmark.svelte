@@ -7,13 +7,13 @@
 </script>
 
 <span class="wordmark" style:font-size="{size}px" style:gap="{(size * 12) / 44}px">
-  <img src={mark} alt="" /><span><span class="fruty">fruty</span><span class="foto">foto</span></span>
+  <img src={mark} alt="" /><span><span class="fig">Fig</span><span class="foto">Foto</span></span>
 </span>
 
 <style>
   .wordmark { display: inline-flex; align-items: center; font-family: "Bricolage Grotesque", system-ui, sans-serif;
     font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
   img { height: 1em; width: auto; }
-  .fruty { color: var(--brand-ink); }
+  .fig { color: var(--brand-ink); }
   .foto { color: var(--brand-amber); }
 </style>

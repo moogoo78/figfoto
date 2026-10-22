@@ -240,7 +240,7 @@ pub fn run(
 }
 
 /// Folders and files that are never photos to import: hidden entries (macOS `._*` resource
-/// forks, `.thumbnails`, another library's `.frutyfoto`), NAS thumbnail dirs and OS trash.
+/// forks, `.thumbnails`, another library's `.figfoto`), NAS thumbnail dirs and OS trash.
 fn is_ignored(name: &std::ffi::OsStr) -> bool {
     let name = name.to_string_lossy();
     name.starts_with('.') || ["@eaDir", "#recycle", "$RECYCLE.BIN", "System Volume Information"].contains(&name.as_ref())

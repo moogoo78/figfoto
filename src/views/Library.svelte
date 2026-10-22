@@ -79,7 +79,7 @@
   const markView = $derived(store.view.kind === "mark" ? store.view.mark : null);
 
   // Collapsed sections of this album, remembered per library in this browser only.
-  const collapseKey = $derived(`frutyfoto.collapsedSections:${store.root}:${albumId}`);
+  const collapseKey = $derived(`figfoto.collapsedSections:${store.root}:${albumId}`);
   let collapsedSections = $state<number[]>([]);
   $effect(() => {
     try {

@@ -6,8 +6,9 @@ use rusqlite::Connection;
 use crate::db;
 use crate::error::{AppError, Result};
 
-const META_DIR: &str = ".frutyfoto";
-const LEGACY_META_DIR: &str = ".fotolake";
+const META_DIR: &str = ".figfoto";
+/// Metadata dirs from before the app was renamed (frutyfoto, and foto-lake before that).
+const LEGACY_META_DIRS: [&str; 2] = [".frutyfoto", ".fotolake"];
 
 /// A library root on disk plus its open database.
 pub struct Library {
@@ -18,16 +19,17 @@ pub struct Library {
 impl Library {
     /// Opens an existing library, or initialises one when `create` is set.
     pub fn open(root: &Path, create: bool) -> Result<Self> {
-        // Libraries created before the rename to frutyfoto keep their metadata in `.fotolake`.
-        let legacy = root.join(LEGACY_META_DIR);
-        if legacy.is_dir() && !root.join(META_DIR).exists() {
-            std::fs::rename(&legacy, root.join(META_DIR))?;
+        // Libraries created under an older name get their metadata dir renamed.
+        for legacy in LEGACY_META_DIRS.map(|d| root.join(d)) {
+            if legacy.is_dir() && !root.join(META_DIR).exists() {
+                std::fs::rename(&legacy, root.join(META_DIR))?;
+            }
         }
         let db_path = root.join(META_DIR).join("library.db");
         if !db_path.exists() {
             if !create {
                 return Err(AppError::msg(format!(
-                    "{} is not a frutyfoto library",
+                    "{} is not a FigFoto library",
                     root.display()
                 )));
             }
@@ -36,7 +38,7 @@ impl Library {
             }
         }
         let root = root.to_path_buf();
-        for dir in ["originals", ".frutyfoto/thumbs", ".frutyfoto/previews", ".frutyfoto/trash"] {
+        for dir in ["originals", ".figfoto/thumbs", ".figfoto/previews", ".figfoto/trash"] {
             std::fs::create_dir_all(root.join(dir))?;
         }
         let conn = db::open(&db_path)?;
@@ -68,7 +70,7 @@ impl Library {
         self.root.join(META_DIR).join("previews")
     }
 
-    /// Folders the webview loads images from. Those inside the hidden `.frutyfoto` dir must
+    /// Folders the webview loads images from. Those inside the hidden `.figfoto` dir must
     /// be listed explicitly: Tauri's scope doesn't match dot-directories via `**` on Unix.
     pub fn served_dirs(&self) -> [PathBuf; 5] {
         [self.originals_dir(), self.albums_dir(), self.thumbs_dir(), self.previews_dir(), self.trash_dir()]

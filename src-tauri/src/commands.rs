@@ -46,6 +46,19 @@ fn config_path(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("config.json"))
 }
 
+/// App ids from before the rename to FigFoto; their config is used until this one has its own.
+const LEGACY_IDENTIFIERS: [&str; 1] = ["io.github.moogoo78.frutyfoto"];
+
+fn read_config(app: &AppHandle) -> Option<Config> {
+    let path = config_path(app)?;
+    let dir = path.parent()?;
+    let legacy = LEGACY_IDENTIFIERS.map(|id| dir.with_file_name(id).join("config.json"));
+    std::iter::once(path.clone())
+        .chain(legacy)
+        .find_map(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+}
+
 fn save_config(app: &AppHandle, cfg: &Config) {
     if let Some(path) = config_path(app) {
         let _ = std::fs::create_dir_all(path.parent().unwrap());
@@ -55,10 +68,7 @@ fn save_config(app: &AppHandle, cfg: &Config) {
 
 /// Re-opens the last used library on startup, if it still exists.
 pub fn restore_last_library(app: &AppHandle) {
-    let Some(cfg) = config_path(app)
-        .and_then(|p| std::fs::read(p).ok())
-        .and_then(|b| serde_json::from_slice::<Config>(&b).ok())
-    else {
+    let Some(cfg) = read_config(app) else {
         return;
     };
     if let Some(root) = cfg.last_library {

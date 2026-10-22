@@ -229,9 +229,9 @@ export interface RunResult {
 export interface BackupTarget {
   id: number;
   name: string;
-  /** `cloud`: an rclone remote; `path` is then `remote:folder/frutyfoto-backup`. */
+  /** `cloud`: an rclone remote; `path` is then `remote:folder/figfoto-backup`. */
   kind: "disk" | "cloud";
-  /** The `frutyfoto-backup` folder. */
+  /** The `figfoto-backup` folder. */
   path: string;
   /** The disk is connected and the folder belongs to this library; for the cloud, rclone
    *  knows the remote. */

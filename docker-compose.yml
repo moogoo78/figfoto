@@ -2,7 +2,7 @@ x-base: &base
   build:
     context: .
     dockerfile: docker/Dockerfile.dev
-  image: frutyfoto-dev
+  image: figfoto-dev
   working_dir: /app
   volumes:
     - .:/app

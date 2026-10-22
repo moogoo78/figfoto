@@ -894,6 +894,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "figfoto"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "image",
+ "image_hasher",
+ "kamadak-exif",
+ "libheif-rs",
+ "rayon",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tempfile",
+ "thiserror 2.0.21",
+ "trash",
+ "walkdir",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -969,29 +992,6 @@ name = "four-cc"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
-
-[[package]]
-name = "frutyfoto"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "chrono",
- "image",
- "image_hasher",
- "kamadak-exif",
- "libheif-rs",
- "rayon",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tempfile",
- "thiserror 2.0.21",
- "trash",
- "walkdir",
-]
 
 [[package]]
 name = "futures-channel"

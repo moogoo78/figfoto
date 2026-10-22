@@ -68,10 +68,10 @@
     remote = "";
     folder = "";
     if (editing) {
-      // `remote:folder/frutyfoto-backup` → remote, folder
+      // `remote:folder/figfoto-backup` (or an old `frutyfoto-backup`) → remote, folder
       const i = editing.path.indexOf(":");
       remote = editing.path.slice(0, i);
-      folder = editing.path.slice(i + 1).replace(/\/?frutyfoto-backup$/, "");
+      folder = editing.path.slice(i + 1).replace(/\/?(figfoto|frutyfoto)-backup$/, "");
     }
     checkRclone();
   }
@@ -178,7 +178,7 @@
                 onkeydown={(e) => { e.stopPropagation(); if (e.key === "Enter") saveCloud(); }} />
             </label>
           </div>
-          <p class="hint">{t("A frutyfoto-backup folder is made inside it: {path}", { path: `${remote}:${folder.trim() ? folder.trim().replace(/^\/+|\/+$/g, "") + "/" : ""}frutyfoto-backup` })}</p>
+          <p class="hint">{t("A figfoto-backup folder is made inside it: {path}", { path: `${remote}:${folder.trim() ? folder.trim().replace(/^\/+|\/+$/g, "") + "/" : ""}figfoto-backup` })}</p>
         {/if}
         <div class="form-actions">
           {#if rclone?.path}

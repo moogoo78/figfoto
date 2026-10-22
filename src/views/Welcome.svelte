@@ -7,7 +7,7 @@
   async function choose(create: boolean) {
     const dir = await open({
       directory: true,
-      title: create ? t("Choose an empty folder for the new library") : t("Open an existing frutyfoto library"),
+      title: create ? t("Choose an empty folder for the new library") : t("Open an existing FigFoto library"),
     });
     if (typeof dir === "string") store.openLibrary(dir, create);
   }

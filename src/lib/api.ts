@@ -93,10 +93,10 @@ export const api = {
   setNote: (ids: number[], kind: "note" | "settings" | "private", text: string) => invoke<void>("set_note", { ids, kind, text }),
 
   listBackupTargets: () => invoke<BackupTarget[]>("list_backup_targets"),
-  /** `path` is the folder picked (a `frutyfoto-backup` folder is made inside it). */
+  /** `path` is the folder picked (a `figfoto-backup` folder is made inside it). */
   addBackupTarget: (path: string) => invoke<number>("add_backup_target", { path }),
   setBackupTargetPath: (id: number, path: string) => invoke<void>("set_backup_target_path", { id, path }),
-  /** `path` is `remote:folder` on an rclone remote (a `frutyfoto-backup` folder is made in it). */
+  /** `path` is `remote:folder` on an rclone remote (a `figfoto-backup` folder is made in it). */
   addCloudBackupTarget: (path: string) => invoke<number>("add_cloud_backup_target", { path }),
   setCloudBackupTargetPath: (id: number, path: string) => invoke<void>("set_cloud_backup_target_path", { id, path }),
   rcloneStatus: () => invoke<RcloneStatus>("rclone_status"),

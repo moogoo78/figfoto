@@ -8,7 +8,7 @@ export const LOCALES: { value: Locale; label: string }[] = [
 ];
 
 const TABLES: Record<Locale, Record<string, string>> = { en: {}, "zh-TW": zhTW };
-const STORAGE_KEY = "frutyfoto.locale";
+const STORAGE_KEY = "figfoto.locale";
 
 function detect(): Locale {
   try {

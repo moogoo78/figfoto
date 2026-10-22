@@ -94,5 +94,5 @@ pub fn run() {
             cancel_backup,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running frutyfoto");
+        .expect("error while running FigFoto");
 }

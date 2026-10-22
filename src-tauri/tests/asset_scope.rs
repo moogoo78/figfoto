@@ -1,7 +1,7 @@
 //! The webview loads thumbnails/previews through Tauri's asset protocol. On Unix its scope
-//! won't match dot-directories via `**`, so `.frutyfoto/...` must be allowed explicitly.
+//! won't match dot-directories via `**`, so `.figfoto/...` must be allowed explicitly.
 
-use frutyfoto_lib::library::Library;
+use figfoto_lib::library::Library;
 use tauri::Manager;
 
 #[test]
@@ -24,5 +24,5 @@ fn library_images_are_served_but_database_is_not() {
     ] {
         assert!(scope.is_allowed(&path), "should be served: {}", path.display());
     }
-    assert!(!scope.is_allowed(tmp.path().join(".frutyfoto/library.db")));
+    assert!(!scope.is_allowed(tmp.path().join(".figfoto/library.db")));
 }

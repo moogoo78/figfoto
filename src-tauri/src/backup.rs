@@ -1,11 +1,12 @@
-//! Backups to other disks and to cloud storage. A target is a `frutyfoto-backup/` folder
+//! Backups to other disks and to cloud storage. A target is a `figfoto-backup/` folder
 //! holding the photos in the library's own layout (`originals/YYYY/MM/DD/<name>`) plus
 //! database snapshots (`db/library-<time>.db`), so it can be browsed and restored without
 //! the app. Cloud targets are the same folder on an rclone remote (see [`crate::cloud`]).
 //!
 //! Backups only ever add: photos removed from the library stay on the backup disk. A marker
 //! file ties the folder to one library, so a disk mounted at another path can be picked
-//! again while another library's backup is refused.
+//! again while another library's backup is refused. Backups made before the rename to
+//! FigFoto (`frutyfoto-backup/`, with the old marker name) keep working where they are.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,8 +21,11 @@ use crate::import::{copy_into, hash_file, now};
 use crate::library::Library;
 
 /// Folder created inside the folder the user picks.
-pub const BACKUP_DIR: &str = "frutyfoto-backup";
-const MARKER: &str = ".frutyfoto-backup.json";
+pub const BACKUP_DIR: &str = "figfoto-backup";
+const LEGACY_BACKUP_DIR: &str = "frutyfoto-backup";
+/// Marker file names, the current one first.
+const MARKERS: [&str; 2] = [".figfoto-backup.json", ".frutyfoto-backup.json"];
+const MARKER: &str = MARKERS[0];
 /// Database snapshots kept on each target.
 const SNAPSHOTS: usize = 5;
 
@@ -29,7 +33,7 @@ const SNAPSHOTS: usize = 5;
 #[serde(rename_all = "lowercase")]
 pub enum TargetKind {
     Disk,
-    /// An rclone remote; `path` is `remote:folder/frutyfoto-backup`.
+    /// An rclone remote; `path` is `remote:folder/figfoto-backup`.
     Cloud,
 }
 
@@ -45,7 +49,7 @@ pub struct BackupTarget {
     pub id: i64,
     pub name: String,
     pub kind: TargetKind,
-    /// The `frutyfoto-backup` folder.
+    /// The `figfoto-backup` folder.
     pub path: String,
     /// The disk is connected and the folder belongs to this library. For cloud targets:
     /// rclone and the remote are set up (the folder is checked when a backup starts).
@@ -104,16 +108,25 @@ pub fn library_id(lib: &Library) -> Result<String> {
     Ok(id)
 }
 
+/// The marker file in a backup folder on disk, under either name.
+fn marker_path(root: &Path) -> Option<PathBuf> {
+    MARKERS.iter().map(|m| root.join(m)).find(|p| p.exists())
+}
+
 fn read_marker(root: &Path) -> Option<Marker> {
-    serde_json::from_slice(&std::fs::read(root.join(MARKER)).ok()?).ok()
+    serde_json::from_slice(&std::fs::read(marker_path(root)?).ok()?).ok()
 }
 
 /// The marker in a cloud folder: `None` when there is none, an error when it's unreadable.
 fn read_cloud_marker(rc: &Rclone, root: &str) -> Result<Option<Marker>> {
-    let Some(bytes) = rc.read(&cloud::join(root, MARKER))? else { return Ok(None) };
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|_| AppError::msg(format!("{root} has an unreadable backup marker")))
+    for name in MARKERS {
+        if let Some(bytes) = rc.read(&cloud::join(root, name))? {
+            return serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|_| AppError::msg(format!("{root} has an unreadable backup marker")));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether `root` is this library's backup folder on a connected disk.
@@ -123,13 +136,19 @@ fn is_ours(lib: &Library, root: &Path) -> Result<bool> {
 }
 
 /// Resolves a picked folder to its backup folder, creating it (and the marker) if needed.
-/// The backup folder itself may be picked too. Refuses another library's backup and
-/// folders inside the library.
+/// The backup folder itself may be picked too, and an old `frutyfoto-backup` folder in the
+/// picked one is reused. Refuses another library's backup and folders inside the library.
 fn prepare_root(lib: &Library, picked: &Path) -> Result<PathBuf> {
     if !picked.is_dir() {
         return Err(AppError::msg(format!("{} is not available", picked.display())));
     }
-    let root = if picked.join(MARKER).is_file() { picked.to_path_buf() } else { picked.join(BACKUP_DIR) };
+    let root = if marker_path(picked).is_some() {
+        picked.to_path_buf()
+    } else if marker_path(&picked.join(LEGACY_BACKUP_DIR)).is_some() {
+        picked.join(LEGACY_BACKUP_DIR)
+    } else {
+        picked.join(BACKUP_DIR)
+    };
     let lib_root = lib.root.canonicalize()?;
     if picked.canonicalize()?.starts_with(&lib_root) {
         return Err(AppError::msg("the backup can't go inside the library; pick another disk"));
@@ -138,7 +157,7 @@ fn prepare_root(lib: &Library, picked: &Path) -> Result<PathBuf> {
     match read_marker(&root) {
         Some(m) if m.library_id == id => {}
         Some(_) => return Err(AppError::msg(format!("{} is the backup of another library", root.display()))),
-        None if root.join(MARKER).exists() => {
+        None if marker_path(&root).is_some() => {
             return Err(AppError::msg(format!("{} has an unreadable backup marker", root.display())))
         }
         None => {
@@ -158,9 +177,13 @@ fn prepare_cloud_root(lib: &Library, rc: &Rclone, picked: &str) -> Result<String
     if !rc.remotes()?.iter().any(|r| r.name == remote) {
         return Err(AppError::msg(format!("rclone has no remote “{remote}”; set it up with rclone config")));
     }
-    let root = match read_cloud_marker(rc, picked)? {
-        Some(_) => picked.to_string(),
-        None => cloud::join(picked, BACKUP_DIR),
+    let legacy = cloud::join(picked, LEGACY_BACKUP_DIR);
+    let root = if read_cloud_marker(rc, picked)?.is_some() {
+        picked.to_string()
+    } else if read_cloud_marker(rc, &legacy)?.is_some() {
+        legacy
+    } else {
+        cloud::join(picked, BACKUP_DIR)
     };
     let id = library_id(lib)?;
     match read_cloud_marker(rc, &root)? {
@@ -176,7 +199,7 @@ fn prepare_cloud_root(lib: &Library, rc: &Rclone, picked: &str) -> Result<String
 
 /// Default target name: the folder the user picked (often the disk's name).
 fn default_name(root: &Path) -> String {
-    let picked = if root.file_name().is_some_and(|n| n == BACKUP_DIR) { root.parent() } else { Some(root) };
+    let picked = if root.file_name().is_some_and(|n| n == BACKUP_DIR || n == LEGACY_BACKUP_DIR) { root.parent() } else { Some(root) };
     picked
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned())
@@ -215,7 +238,8 @@ pub fn add_target(lib: &Library, picked: &Path) -> Result<i64> {
 pub fn add_cloud_target(lib: &Library, picked: &str) -> Result<i64> {
     let root = prepare_cloud_root(lib, &Rclone::find(lib)?, picked)?;
     check_path_free(lib, Path::new(&root), None)?;
-    let name = root.strip_suffix(BACKUP_DIR).unwrap_or(&root).trim_end_matches('/').to_string();
+    let name = root.strip_suffix(BACKUP_DIR).or_else(|| root.strip_suffix(LEGACY_BACKUP_DIR)).unwrap_or(&root);
+    let name = name.trim_end_matches('/').to_string();
     let conn = lib.conn();
     conn.execute(
         "INSERT INTO backup_targets (name, path, kind, created_at) VALUES (?1, ?2, 'cloud', ?3)",
@@ -598,7 +622,7 @@ fn run_cloud(
 
 /// [`snapshot_db`] for a cloud target: written locally, uploaded, then the oldest pruned.
 fn snapshot_db_cloud(lib: &Library, rc: &Rclone, root: &str) -> Result<()> {
-    let local = lib.root.join(".frutyfoto").join("backup-snapshot.db");
+    let local = lib.root.join(".figfoto").join("backup-snapshot.db");
     let _ = std::fs::remove_file(&local);
     let uploaded = lib
         .conn()

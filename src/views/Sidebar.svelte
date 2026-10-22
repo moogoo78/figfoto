@@ -22,7 +22,7 @@
   const carries = (e: DragEvent, mime: string) => !!e.dataTransfer?.types.includes(mime);
 
   // Collapsed topics, remembered per library in this browser only.
-  const collapseKey = $derived(`frutyfoto.collapsedTopics:${store.root}`);
+  const collapseKey = $derived(`figfoto.collapsedTopics:${store.root}`);
   let collapsed = $state<number[]>([]);
   $effect(() => {
     try {
@@ -101,7 +101,7 @@
   async function switchLibrary(create: boolean) {
     const dir = await open({
       directory: true,
-      title: create ? t("Choose an empty folder for the new library") : t("Open frutyfoto library"),
+      title: create ? t("Choose an empty folder for the new library") : t("Open FigFoto library"),
     });
     if (typeof dir === "string") store.openLibrary(dir, create);
   }

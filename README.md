@@ -1,4 +1,4 @@
-# frutyfoto
+# FigFoto
 
 A desktop photo organizer (Tauri 2 + Svelte 5). Adding photos copies them into a managed library
 sorted by date, then lets you browse, rate, tag, group into albums and weed out duplicates.
@@ -28,7 +28,7 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
                 ┌──────────────────────────────────────────┐
                 │              LIBRARY (disk)              │
                 │ originals/YYYY/MM/DD/   albums/<album>/  │
-                │ .frutyfoto/ db · thumbs · previews       │
+                │ .figfoto/ db · thumbs · previews       │
                 └─────────────────────┬────────────────────┘
                                       │
                                       ▼
@@ -68,10 +68,10 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
 <library>/
   originals/YYYY/MM/DD/<name>[-N].<ext>   # copied photos (sources are never modified)
   albums/<album>/<name>[-N].<ext>         # photos that belong to an album
-  .frutyfoto/library.db                     # SQLite index
-  .frutyfoto/thumbs/<xx>/<hash>.jpg         # 400px thumbnails
-  .frutyfoto/previews/<xx>/<hash>.jpg       # full-size JPEG for HEIC/TIFF (webview can't show them)
-  .frutyfoto/trash/                         # trashed photos (restorable until emptied)
+  .figfoto/library.db                     # SQLite index
+  .figfoto/thumbs/<xx>/<hash>.jpg         # 400px thumbnails
+  .figfoto/previews/<xx>/<hash>.jpg       # full-size JPEG for HEIC/TIFF (webview can't show them)
+  .figfoto/trash/                         # trashed photos (restorable until emptied)
 ```
 
 Added photos are filed by date under `originals/`. Adding a photo to an album **moves the file** into
@@ -102,17 +102,17 @@ Exact duplicates (same BLAKE3 hash) are skipped when adding photos; near-duplica
 64-bit perceptual hash in the **Duplicates** view.
 
 Supported formats: JPEG, PNG, WebP, TIFF, GIF, HEIC/HEIF. HEIC is decoded with libheif + libde265
-(compiled into the app). HEIC and TIFF get a full-size JPEG preview in `.frutyfoto/previews/`
+(compiled into the app). HEIC and TIFF get a full-size JPEG preview in `.figfoto/previews/`
 for the viewer; missing previews are created in the background when a library is opened.
 
 ### Backup
 
 The **Backup** view copies the library to other disks. Click **Add backup disk…**, pick a folder
-on the disk, then **Back up now**. Each disk gets a `frutyfoto-backup/` folder that can be browsed
+on the disk, then **Back up now**. Each disk gets a `figfoto-backup/` folder that can be browsed
 and restored without the app:
 
 ```
-frutyfoto-backup/
+figfoto-backup/
   originals/YYYY/MM/DD/<name>.<ext>   # every photo, by date
   db/library-<time>.db                # library database snapshot, newest 5 kept
 ```
@@ -121,7 +121,8 @@ Each run copies only what's new, and every copy is checked by hash. Backups only
 delete from the library stay on the backup. **Verify** reads every copy back; missing or changed
 ones are copied again on the next run. You can keep several disks, each with its own record. If a
 disk shows up at another path, use **Change folder…**; another library's backup folder is refused.
-The sidebar shows how many photos are not backed up yet.
+The sidebar shows how many photos are not backed up yet. Backups made before the app was renamed
+to FigFoto stay in their `frutyfoto-backup/` folder and keep working.
 
 **Cloud backups** (Google Drive, Backblaze B2, Proton Drive, or anything else rclone supports) go
 through [rclone](https://rclone.org), which you install yourself:
@@ -134,7 +135,7 @@ rclone config                               # add a remote, e.g. "gdrive" (Googl
 ```
 
 Then click **Add cloud backup…**, pick the remote and a folder (for B2, the bucket name). The cloud
-gets the same `frutyfoto-backup/` layout as a disk. rclone checks each upload's hash; **Verify**
+gets the same `figfoto-backup/` layout as a disk. rclone checks each upload's hash; **Verify**
 compares every copy with the library using the cloud's own hash (SHA-1 or MD5). If a different
 file is already at a photo's path, it's kept, renamed `<name>-replaced-<time>.<ext>`. If rclone
 isn't on PATH (apps started from the macOS Dock don't get the shell's PATH), use **Locate rclone…**.
@@ -152,7 +153,7 @@ docker compose run --rm sh pnpm check     # svelte-check / tsc
 docker compose run --rm bundle            # .deb + AppImage into ./release
 ```
 
-**For real use, run the AppImage** (`./release/frutyfoto_*.AppImage`). It runs natively,
+**For real use, run the AppImage** (`./release/FigFoto_*.AppImage`). It runs natively,
 bundles WebKit (so nothing needs installing on the host), and its folder picker can see all your
 files. The dev container can only see the folders mounted into it (below).
 
