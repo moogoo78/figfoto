@@ -143,7 +143,15 @@ isn't on PATH (apps started from the macOS Dock don't get the shell's PATH), use
 ## Development (Docker)
 
 Everything builds and runs in a container; the window is shown on the host display via Wayland
-(X11 fallback).
+(X11 fallback). The `Makefile` has shortcuts for the common ones:
+
+```sh
+make dev                                  # run the app (docker compose up dev)
+make test                                 # Rust tests
+make release                              # .deb + AppImage into ./release
+```
+
+The full commands:
 
 ```sh
 docker compose build                      # dev image: Rust, Node 22, pnpm, webkit2gtk
