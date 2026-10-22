@@ -295,9 +295,9 @@ export const zhTW: Record<string, string> = {
   "Add a sub-section": "新增子分段",
   "Sub-section of “{name}”": "「{name}」的子分段名稱",
   "Subfolders become sections": "子資料夾成為分段",
-  "(2019 Japan/Kyoto → album “2019 Japan”, section “Kyoto”)": "（2019 Japan/Kyoto → 相簿「2019 Japan」、分段「Kyoto」）",
-  "Each folder right inside the chosen folder becomes an album named after it, and the folders inside those become sections of that album (e.g. 2019 Japan / Kyoto). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.":
-    "所選資料夾內的每個資料夾都會成為同名相簿，其中的子資料夾則成為該相簿的分段（例如 2019 Japan / Kyoto）。直接放在所選資料夾裡的照片會放進以它命名的相簿。已在圖庫中的照片會直接加入，不會再複製一份。",
+  "(2019 Japan/Kyoto/Day 2 → album “2019 Japan”, section Kyoto › Day 2)": "（2019 Japan/Kyoto/Day 2 → 相簿「2019 Japan」、分段 Kyoto › Day 2）",
+  "Only the folders right inside the chosen folder become albums, named after them. Every folder deeper down becomes a section of that album, nested like the folders (2019 Japan / Kyoto / Day 2 → album “2019 Japan”, section Kyoto › Day 2). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.":
+    "只有所選資料夾內第一層的資料夾會成為同名相簿；更深層的資料夾都會成為該相簿的分段，層級與資料夾相同（2019 Japan / Kyoto / Day 2 → 相簿「2019 Japan」、分段 Kyoto › Day 2）。直接放在所選資料夾裡的照片會放進以它命名的相簿。已在圖庫中的照片會直接加入，不會再複製一份。",
   "Folders → albums + sections": "資料夾 → 相簿 + 分段",
 
   // Backup
