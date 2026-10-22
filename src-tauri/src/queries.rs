@@ -139,15 +139,16 @@ pub enum Sort {
     TakenAsc,
     ImportedDesc,
     RatingDesc,
-    /// In an album: by section (by date or name, per the album; no section last), then date taken.
-    /// Elsewhere the same as `TakenAsc`.
-    Section,
+    /// In an album shown inline: by the album inside it each photo is in (in the order of
+    /// `list_albums`; the album's own photos last), then date taken. Elsewhere the same as
+    /// `TakenAsc`.
+    Children,
 }
 
 impl Sort {
-    /// The sort actually used for this filter (sections only exist inside an album).
+    /// The sort actually used for this filter (albums inside only show inside an album).
     fn resolve(self, f: &Filter) -> Sort {
-        if self == Sort::Section && f.album_id.is_none() { Sort::TakenAsc } else { self }
+        if self == Sort::Children && f.album_id.is_none() { Sort::TakenAsc } else { self }
     }
 
     fn order_by(self, lib: &Library, f: &Filter) -> Result<String> {
@@ -156,7 +157,7 @@ impl Sort {
             Sort::TakenAsc => "p.taken_at ASC, p.id ASC".into(),
             Sort::ImportedDesc => "p.imported_at DESC, p.id DESC".into(),
             Sort::RatingDesc => "p.rating DESC, p.taken_at DESC, p.id DESC".into(),
-            Sort::Section => format!("{}, p.taken_at ASC, p.id ASC", section_rank(lib, f.album_id.unwrap_or_default())?),
+            Sort::Children => format!("{}, p.taken_at ASC, p.id ASC", children_rank(lib, f.album_id.unwrap_or_default())?.0),
         })
     }
 
@@ -165,16 +166,26 @@ impl Sort {
     }
 }
 
-/// SQL for the place of photo `p`'s section in `album_id`, in `list_sections` order; photos
-/// without one sort last. The ids are integers, so formatting them into the SQL is safe.
-fn section_rank(lib: &Library, album_id: i64) -> Result<String> {
-    let whens: String = list_sections(lib, album_id)?.iter().enumerate().map(|(i, s)| format!(" WHEN {} THEN {i}", s.id)).collect();
-    if whens.is_empty() {
-        return Ok("NULL".into());
+/// SQL for the place of photo `p` among the albums inside `album_id` (in `list_albums` order;
+/// a photo in several is placed by the first), with the album's own photos last; and those
+/// albums, in that order. Only an album shown inline has its albums' photos on its page, so
+/// for any other there are none. The ids are integers, so formatting them into the SQL is safe.
+fn children_rank(lib: &Library, album_id: i64) -> Result<(String, Vec<Album>)> {
+    let albums = list_albums(lib)?;
+    let inline = albums.iter().any(|a| a.id == album_id && a.display == "inline");
+    let inside: Vec<Album> = if inline { albums_inside(&albums, album_id) } else { Vec::new() };
+    if inside.is_empty() {
+        return Ok(("NULL".into(), inside));
     }
-    Ok(format!(
-        "CASE (SELECT ap.section_id FROM album_photos ap WHERE ap.album_id = {album_id} AND ap.photo_id = p.id){whens} ELSE {} END",
-        i64::MAX
+    let whens: String = inside.iter().enumerate().map(|(i, a)| format!(" WHEN {} THEN {i}", a.id)).collect();
+    let ids: String = inside.iter().map(|a| format!(",{}", a.id)).collect();
+    Ok((
+        format!(
+            "(SELECT MIN(CASE ap.album_id{whens} ELSE {} END) FROM album_photos ap
+              WHERE ap.photo_id = p.id AND ap.album_id IN ({album_id}{ids}))",
+            i64::MAX
+        ),
+        inside,
     ))
 }
 
@@ -205,7 +216,18 @@ fn where_clause(f: &Filter) -> (String, Vec<Box<dyn ToSql>>) {
         args.extend(f.tag_ids.iter().map(|t| Box::new(*t) as Box<dyn ToSql>));
     }
     if let Some(a) = f.album_id {
-        clauses.push("p.id IN (SELECT photo_id FROM album_photos WHERE album_id = ?)".into());
+        // An album shown inline has the photos of the albums inside it too, at any depth.
+        clauses.push(
+            "p.id IN (SELECT ap.photo_id FROM album_photos ap WHERE ap.album_id IN (
+               WITH RECURSIVE sub(id) AS (
+                   SELECT id FROM albums WHERE id = ?
+                 UNION
+                   SELECT a.id FROM albums a JOIN sub ON a.parent_id = sub.id
+                   WHERE (SELECT display FROM albums WHERE id = ?) = 'inline')
+               SELECT id FROM sub))"
+                .into(),
+        );
+        args.push(Box::new(a));
         args.push(Box::new(a));
     }
     if let Some(i) = f.import_id {
@@ -297,26 +319,26 @@ pub struct Bucket {
     /// `YYYY-MM-DD`, or empty when the sort doesn't group by day.
     pub day: String,
     pub count: i64,
-    /// When sorted by section: the section's id, or 0 for the photos in none.
-    pub section: Option<i64>,
-    /// When sorted by section: the section's name (empty for no section).
+    /// When sorted by the albums inside: that album's id, or 0 for the album's own photos.
+    pub album: Option<i64>,
+    /// When sorted by the albums inside: the album's name (empty for the album's own photos).
     pub label: String,
-    /// When sorted by section: how deep the section is nested (0 at the top).
+    /// When sorted by the albums inside: how deep it is (0 right inside the album shown).
     pub depth: i64,
-    /// When sorted by section: the section it is in, if any.
+    /// When sorted by the albums inside: the album it is in, unless that is the album shown.
     pub parent: Option<i64>,
-    /// When sorted by section: number of sections directly inside it.
-    pub subsections: i64,
-    /// When sorted by section: photos in it and in all its sub-sections (`count` is only the
-    /// photos directly in it, so none for a section with sub-sections).
+    /// When sorted by the albums inside: number of albums directly inside it.
+    pub children: i64,
+    /// When sorted by the albums inside: photos in it and the albums inside it (`count` is
+    /// only the ones placed directly in it).
     pub total: i64,
 }
 
-/// Photo counts per day (or per section), in the same order `list_photos` returns them.
+/// Photo counts per day (or per album inside), in the same order `list_photos` returns them.
 pub fn date_buckets(lib: &Library, f: &Filter, sort: Sort) -> Result<Vec<Bucket>> {
     let sort = sort.resolve(f);
-    if sort == Sort::Section {
-        return section_buckets(lib, f, f.album_id.unwrap_or_default());
+    if sort == Sort::Children {
+        return children_buckets(lib, f, f.album_id.unwrap_or_default());
     }
     let (wh, args) = where_clause(f);
     let conn = lib.conn();
@@ -340,48 +362,47 @@ pub fn date_buckets(lib: &Library, f: &Filter, sort: Sort) -> Result<Vec<Bucket>
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// One bucket per section of the album, in `list_sections` order (empty ones too, so they can
-/// be managed), then the photos in no section.
-fn section_buckets(lib: &Library, f: &Filter, album_id: i64) -> Result<Vec<Bucket>> {
+/// One bucket per album inside the album, in `list_albums` order (empty ones too, so they can
+/// be managed), then the album's own photos.
+fn children_buckets(lib: &Library, f: &Filter, album_id: i64) -> Result<Vec<Bucket>> {
+    let (rank, inside) = children_rank(lib, album_id)?;
     let counts: HashMap<i64, i64> = {
         let (wh, args) = where_clause(f);
         let conn = lib.conn();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT COALESCE(ap.section_id, 0), COUNT(*) FROM photos p
-               JOIN album_photos ap ON ap.photo_id = p.id AND ap.album_id = {album_id}
-             WHERE {wh} GROUP BY 1"
-        ))?;
-        let rows = stmt.query_map(params_from_iter(args.iter()), |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut stmt = conn.prepare(&format!("SELECT r, COUNT(*) FROM (SELECT {rank} AS r FROM photos p WHERE {wh}) GROUP BY r"))?;
+        let rows = stmt.query_map(params_from_iter(args.iter()), |r| Ok((r.get::<_, Option<i64>>(0)?.unwrap_or(i64::MAX), r.get(1)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
-    let mut out: Vec<Bucket> = list_sections(lib, album_id)?
+    let base = inside.first().map_or(0, |a| a.depth);
+    let mut out: Vec<Bucket> = inside
         .into_iter()
-        .map(|s| {
-            let count = counts.get(&s.id).copied().unwrap_or(0);
+        .enumerate()
+        .map(|(i, a)| {
+            let count = counts.get(&(i as i64)).copied().unwrap_or(0);
             Bucket {
                 count,
-                section: Some(s.id),
-                label: s.name,
-                depth: s.depth,
-                parent: s.parent_id,
-                subsections: s.subsections,
+                album: Some(a.id),
+                label: a.name,
+                depth: a.depth - base,
+                parent: a.parent_id.filter(|p| *p != album_id),
+                children: a.children,
                 total: count,
                 ..Default::default()
             }
         })
         .collect();
-    // Sub-sections come right after their section, so adding each total to its parent's
-    // from the end up sums whole subtrees.
-    let index: HashMap<i64, usize> = out.iter().enumerate().map(|(i, b)| (b.section.unwrap_or_default(), i)).collect();
+    // Albums inside come right after the one they're in, so adding each total to its
+    // parent's from the end up sums whole subtrees.
+    let index: HashMap<i64, usize> = out.iter().enumerate().map(|(i, b)| (b.album.unwrap_or_default(), i)).collect();
     for i in (0..out.len()).rev() {
         if let Some(&p) = out[i].parent.and_then(|p| index.get(&p)) {
             out[p].total += out[i].total;
         }
     }
-    match counts.get(&0) {
-        // An album without sections is just one plain group.
+    match counts.get(&i64::MAX) {
+        // An album with no albums inside (or shown as tiles) is just one plain group.
         Some(&count) if out.is_empty() => out.push(Bucket { count, total: count, ..Default::default() }),
-        Some(&count) => out.push(Bucket { count, total: count, section: Some(0), ..Default::default() }),
+        Some(&count) => out.push(Bucket { count, total: count, album: Some(0), ..Default::default() }),
         None => {}
     }
     Ok(out)
@@ -400,14 +421,23 @@ pub struct Album {
     pub id: i64,
     pub name: String,
     pub created_at: String,
+    /// The album it is inside, if any.
+    pub parent_id: Option<i64>,
+    /// How deep it is (0 at the top).
+    pub depth: i64,
+    /// Photos directly in it.
     pub count: i64,
+    /// Photos in it and every album inside it (each counted once).
+    pub total: i64,
+    /// Number of albums directly inside it.
+    pub children: i64,
+    /// Its chosen cover, else its first photo, else the cover of the first album inside it.
     pub cover: Option<String>,
-    /// The category the album is filed in, if any.
-    pub category_id: Option<i64>,
-    /// Number of sections the album is split into.
-    pub sections: i64,
-    /// How the sections are ordered: "date" (by their first photo) or "name".
-    pub section_kind: String,
+    /// How the albums inside are ordered: "date" (oldest first), "newest" or "name".
+    pub child_order: String,
+    /// How its page shows the albums inside: "inline" (their photos, under a heading each)
+    /// or "tiles".
+    pub display: String,
     /// When pinned to the sidebar: its place among the shortcuts (lower first).
     pub shortcut: Option<i64>,
 }
@@ -417,8 +447,8 @@ pub struct PhotoDetail {
     pub photo: Photo,
     pub tags: Vec<Tag>,
     pub albums: Vec<Album>,
-    /// The photo's section name in each album it has one in, keyed by album id.
-    pub sections: HashMap<i64, String>,
+    /// Each of `albums` with the albums it is inside ("Japan › Kyoto"), keyed by album id.
+    pub paths: HashMap<i64, String>,
 }
 
 pub fn get_photo(lib: &Library, id: i64) -> Result<PhotoDetail> {
@@ -445,25 +475,10 @@ pub fn get_photo(lib: &Library, id: i64) -> Result<PhotoDetail> {
         let rows = stmt.query_map([id], |r| r.get(0))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
-    // Album id -> section path ("Kyoto › Day 2"), for the albums it is in a section of.
-    let sections: HashMap<i64, String> = {
-        let conn = lib.conn();
-        let mut stmt = conn.prepare(
-            "WITH RECURSIVE path(album_id, parent_id, label) AS (
-                 SELECT ap.album_id, s.parent_id, s.name FROM album_photos ap
-                   JOIN album_sections s ON s.id = ap.section_id
-                 WHERE ap.photo_id = ?1
-               UNION ALL
-                 SELECT path.album_id, s.parent_id, s.name || ' › ' || path.label FROM path
-                   JOIN album_sections s ON s.id = path.parent_id
-             )
-             SELECT album_id, label FROM path WHERE parent_id IS NULL",
-        )?;
-        let rows = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        rows.collect::<rusqlite::Result<_>>()?
-    };
-    let albums = list_albums(lib)?.into_iter().filter(|a| in_albums.contains(&a.id)).collect();
-    Ok(PhotoDetail { photo, tags, albums, sections })
+    let all = list_albums(lib)?;
+    let paths = in_albums.iter().map(|&a| (a, album_path(&all, a))).collect();
+    let albums = all.into_iter().filter(|a| in_albums.contains(&a.id)).collect();
+    Ok(PhotoDetail { photo, tags, albums, paths })
 }
 
 fn id_list(ids: &[i64]) -> String {
@@ -537,229 +552,233 @@ pub fn remove_tag(lib: &Library, ids: &[i64], tag_id: i64) -> Result<()> {
 
 // ---- albums ----
 
+/// Every album as a tree, each followed by the albums inside it. The top level is newest
+/// first (by the latest photo in it or inside it, an empty album by when it was made); the
+/// albums inside each album are in its `child_order`.
 pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
-    let conn = lib.conn();
+    struct Row {
+        album: Album,
+        own_cover: Option<String>,
+        created_at: String,
+        children: Vec<usize>,
+        photos: std::collections::HashSet<i64>,
+        first: Option<String>,
+        last: Option<String>,
+    }
+    let mut rows: Vec<Row> = {
+        let conn = lib.conn();
+        let mut stmt = conn.prepare(
+            "SELECT a.id, a.name, a.created_at, a.parent_id, a.child_order, a.display,
+                (SELECT id FROM shortcuts WHERE album_id = a.id),
+                COALESCE(
+                  (SELECT hash FROM photos WHERE id = a.cover_photo_id AND trashed_at IS NULL),
+                  (SELECT p.hash FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
+                     WHERE ap.album_id = a.id AND p.trashed_at IS NULL
+                     ORDER BY ap.position, p.taken_at LIMIT 1))
+             FROM albums a ORDER BY a.id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let created_at: String = r.get(2)?;
+            Ok(Row {
+                album: Album {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    created_at: created_at.clone(),
+                    parent_id: r.get(3)?,
+                    depth: 0,
+                    count: 0,
+                    total: 0,
+                    children: 0,
+                    cover: None,
+                    child_order: r.get(4)?,
+                    display: r.get(5)?,
+                    shortcut: r.get(6)?,
+                },
+                own_cover: r.get::<_, Option<String>>(7)?.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
+                created_at,
+                children: Vec::new(),
+                photos: Default::default(),
+                first: None,
+                last: None,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let index: HashMap<i64, usize> = rows.iter().enumerate().map(|(i, r)| (r.album.id, i)).collect();
+    {
+        let conn = lib.conn();
+        let mut stmt = conn.prepare(
+            "SELECT ap.album_id, p.id, p.taken_at FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
+             WHERE p.trashed_at IS NULL",
+        )?;
+        let pairs = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))?;
+        for pair in pairs {
+            let (album, photo, taken) = pair?;
+            let Some(&i) = index.get(&album) else { continue };
+            let row = &mut rows[i];
+            row.album.count += 1;
+            row.photos.insert(photo);
+            if row.first.as_ref().is_none_or(|f| &taken < f) {
+                row.first = Some(taken.clone());
+            }
+            if row.last.as_ref().is_none_or(|l| &taken > l) {
+                row.last = Some(taken);
+            }
+        }
+    }
+    let mut roots = Vec::new();
+    for i in 0..rows.len() {
+        // An album whose parent is gone (or that would be inside itself) shows at the top.
+        match rows[i].album.parent_id.and_then(|p| index.get(&p)).filter(|&&p| p != i) {
+            Some(&p) => rows[p].children.push(i),
+            None => roots.push(i),
+        }
+    }
+    // Photos, dates and covers of each subtree, the albums inside before the one they're in.
+    // `seen` guards against a parent loop, which `move_album` doesn't allow anyway.
+    fn sum(rows: &mut [Row], i: usize, seen: &mut Vec<bool>) {
+        seen[i] = true;
+        for c in rows[i].children.clone() {
+            if seen[c] {
+                continue;
+            }
+            sum(rows, c, seen);
+            let (photos, first, last) = (rows[c].photos.clone(), rows[c].first.clone(), rows[c].last.clone());
+            let row = &mut rows[i];
+            row.photos.extend(photos);
+            if first.is_some() && (row.first.is_none() || first < row.first) {
+                row.first = first;
+            }
+            if last > row.last {
+                row.last = last;
+            }
+        }
+    }
+    let mut seen = vec![false; rows.len()];
+    for &r in &roots {
+        sum(&mut rows, r, &mut seen);
+    }
+    let order = |list: &mut Vec<usize>, rows: &[Row], how: &str| {
+        let name = |i: usize| (rows[i].album.name.to_lowercase(), rows[i].album.id);
+        match how {
+            "name" => list.sort_by_cached_key(|&i| name(i)),
+            "date" => list.sort_by_cached_key(|&i| (rows[i].first.is_none(), rows[i].first.clone(), name(i))),
+            _ => list.sort_by_cached_key(|&i| {
+                let latest = rows[i].last.clone().unwrap_or_else(|| rows[i].created_at.clone());
+                (std::cmp::Reverse(latest), name(i))
+            }),
+        }
+    };
+    fn walk(rows: &mut [Row], list: &[usize], depth: i64, out: &mut Vec<usize>, order: &dyn Fn(&mut Vec<usize>, &[Row], &str)) {
+        for &i in list {
+            if out.contains(&i) {
+                continue;
+            }
+            rows[i].album.depth = depth;
+            out.push(i);
+            let mut children = rows[i].children.clone();
+            let how = rows[i].album.child_order.clone();
+            order(&mut children, rows, &how);
+            walk(rows, &children, depth + 1, out, order);
+        }
+    }
+    order(&mut roots, &rows, "newest");
+    let mut sequence = Vec::with_capacity(rows.len());
+    walk(&mut rows, &roots, 0, &mut sequence, &order);
+    // Covers: an album without photos of its own takes the first cover found inside it.
+    for &i in sequence.iter().rev() {
+        let inside = rows[i].children.clone();
+        let mut ordered: Vec<usize> = sequence.iter().copied().filter(|j| inside.contains(j)).collect();
+        ordered.retain(|&j| rows[j].album.cover.is_some());
+        let row = &rows[i];
+        let cover = row.own_cover.clone().or_else(|| ordered.first().and_then(|&j| rows[j].album.cover.clone()));
+        let (total, children) = (row.photos.len() as i64, row.children.len() as i64);
+        let album = &mut rows[i].album;
+        album.cover = cover;
+        album.total = total;
+        album.children = children;
+    }
+    Ok(sequence.into_iter().map(|i| rows[i].album.clone()).collect())
+}
+
+/// The albums inside `id`, at any depth, in `list_albums` order.
+pub fn albums_inside(albums: &[Album], id: i64) -> Vec<Album> {
+    let Some(start) = albums.iter().position(|a| a.id == id) else { return Vec::new() };
+    let depth = albums[start].depth;
+    albums[start + 1..].iter().take_while(|a| a.depth > depth).cloned().collect()
+}
+
+/// "Japan › Kyoto": the album's name after the albums it is inside.
+pub fn album_path(albums: &[Album], id: i64) -> String {
+    let mut names = Vec::new();
+    let mut at = Some(id);
+    while let Some(a) = at.and_then(|id| albums.iter().find(|a| a.id == id)) {
+        if names.len() > albums.len() {
+            break;
+        }
+        names.push(a.name.as_str());
+        at = a.parent_id;
+    }
+    names.reverse();
+    names.join(" › ")
+}
+
+/// The album and every album inside it, at any depth.
+fn album_and_inside(conn: &Connection, id: i64) -> Result<Vec<i64>> {
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.name, a.created_at,
-            (SELECT COUNT(*) FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
-               WHERE ap.album_id = a.id AND p.trashed_at IS NULL),
-            COALESCE(
-              (SELECT hash FROM photos WHERE id = a.cover_photo_id AND trashed_at IS NULL),
-              (SELECT p.hash FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
-                 WHERE ap.album_id = a.id AND p.trashed_at IS NULL
-                 ORDER BY ap.position, p.taken_at LIMIT 1)),
-            a.category_id,
-            (SELECT COUNT(*) FROM album_sections s WHERE s.album_id = a.id),
-            a.section_kind,
-            (SELECT id FROM shortcuts WHERE album_id = a.id)
-         FROM albums a
-         -- Newest first, by the latest photo taken (an empty album by when it was made).
-         ORDER BY COALESCE(
-             (SELECT MAX(p.taken_at) FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
-                WHERE ap.album_id = a.id AND p.trashed_at IS NULL),
-             a.created_at) DESC,
-           a.name COLLATE NOCASE",
+        "WITH RECURSIVE sub(id) AS (SELECT ?1 UNION SELECT a.id FROM albums a JOIN sub ON a.parent_id = sub.id)
+         SELECT id FROM sub",
     )?;
-    let rows = stmt.query_map([], |r| {
-        let cover: Option<String> = r.get(4)?;
-        Ok(Album {
-            id: r.get(0)?,
-            name: r.get(1)?,
-            created_at: r.get(2)?,
-            count: r.get(3)?,
-            cover: cover.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
-            category_id: r.get(5)?,
-            sections: r.get(6)?,
-            section_kind: r.get(7)?,
-            shortcut: r.get(8)?,
-        })
-    })?;
+    let rows = stmt.query_map([id], |r| r.get(0))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// A box for albums and other categories, like "Travel" or "Travel › Japan".
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Category {
-    pub id: i64,
-    pub name: String,
-    /// The category it is inside, if any.
-    pub parent_id: Option<i64>,
-    /// Number of albums directly in the category.
-    pub albums: i64,
-    /// Number of categories directly inside it.
-    pub categories: i64,
-    /// Cover of its first album that has one, else of the first category inside that has one.
-    pub cover: Option<String>,
-    /// When pinned to the sidebar: its place among the shortcuts (lower first).
-    pub shortcut: Option<i64>,
-}
-
-/// Every category, by name.
-pub fn list_categories(lib: &Library) -> Result<Vec<Category>> {
-    let rows: Vec<(i64, String, Option<i64>, Option<i64>)> = {
-        let conn = lib.conn();
-        let mut stmt = conn.prepare(
-            "SELECT c.id, c.name, c.parent_id, (SELECT id FROM shortcuts WHERE category_id = c.id)
-             FROM categories c ORDER BY c.name COLLATE NOCASE",
-        )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
-        rows.collect::<rusqlite::Result<_>>()?
-    };
-    let albums = list_albums(lib)?;
-    let mut out: Vec<Category> = rows
-        .iter()
-        .map(|(id, name, parent_id, shortcut)| {
-            let mine = albums.iter().filter(|a| a.category_id == Some(*id));
-            Category {
-                id: *id,
-                name: name.clone(),
-                parent_id: *parent_id,
-                albums: mine.clone().count() as i64,
-                categories: rows.iter().filter(|r| r.2 == Some(*id)).count() as i64,
-                cover: mine.filter_map(|a| a.cover.clone()).next(),
-                shortcut: *shortcut,
-            }
-        })
-        .collect();
-    // A category without albums of its own takes a cover from the ones inside it, deepest first.
-    for _ in 0..out.len() {
-        let mut changed = false;
-        for i in 0..out.len() {
-            if out[i].cover.is_some() {
-                continue;
-            }
-            let id = out[i].id;
-            if let Some(cover) = out.iter().find(|c| c.parent_id == Some(id) && c.cover.is_some()).and_then(|c| c.cover.clone()) {
-                out[i].cover = Some(cover);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    Ok(out)
-}
-
-/// Pins an album (`kind` "album") or category ("category") to the sidebar, after the ones
-/// already there, or unpins it.
-pub fn set_shortcut(lib: &Library, kind: &str, id: i64, pinned: bool) -> Result<()> {
-    let column = match kind {
-        "album" => "album_id",
-        "category" => "category_id",
-        _ => return Err(AppError::msg("a shortcut is to an album or a category")),
-    };
+/// Pins an album to the sidebar, after the ones already there, or unpins it.
+pub fn set_shortcut(lib: &Library, album_id: i64, pinned: bool) -> Result<()> {
     let conn = lib.conn();
     if pinned {
-        conn.execute(&format!("INSERT OR IGNORE INTO shortcuts ({column}) VALUES (?1)"), [id])?;
+        conn.execute("INSERT OR IGNORE INTO shortcuts (album_id) VALUES (?1)", [album_id])?;
     } else {
-        conn.execute(&format!("DELETE FROM shortcuts WHERE {column} = ?1"), [id])?;
+        conn.execute("DELETE FROM shortcuts WHERE album_id = ?1", [album_id])?;
     }
     Ok(())
 }
 
-/// The category named `name` (ignoring case) inside `parent` (top level with `None`),
-/// created if there is none.
-pub fn create_category(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::msg("category name is empty"));
-    }
-    let conn = lib.conn();
-    let existing = conn
-        .query_row(
-            "SELECT id FROM categories WHERE name = ?1 COLLATE NOCASE AND parent_id IS ?2 ORDER BY id LIMIT 1",
-            params![name, parent],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if let Some(id) = existing {
-        return Ok(id);
-    }
-    conn.execute("INSERT INTO categories (name, parent_id, created_at) VALUES (?1, ?2, ?3)", params![name, parent, now()])?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// The category at `path` (names from the top down), each one created if missing.
-pub fn create_category_path(lib: &Library, path: &[String]) -> Result<Option<i64>> {
-    let mut parent = None;
-    for name in path {
-        parent = Some(create_category(lib, name, parent)?);
-    }
-    Ok(parent)
-}
-
-pub fn rename_category(lib: &Library, id: i64, name: &str) -> Result<()> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::msg("category name is empty"));
-    }
-    lib.conn().execute("UPDATE categories SET name = ?1 WHERE id = ?2", params![name, id])?;
-    Ok(())
-}
-
-/// Moves a category inside another, or to the top level with `None`. A category can't go
-/// inside itself or one of the categories inside it.
-pub fn move_category(lib: &Library, id: i64, parent: Option<i64>) -> Result<()> {
-    let conn = lib.conn();
-    let mut up = parent;
-    while let Some(p) = up {
-        if p == id {
-            return Err(AppError::msg("a category can't go inside itself"));
-        }
-        up = conn.query_row("SELECT parent_id FROM categories WHERE id = ?1", [p], |r| r.get(0)).optional()?.flatten();
-    }
-    conn.execute("UPDATE categories SET parent_id = ?1 WHERE id = ?2", params![parent, id])?;
-    Ok(())
-}
-
-/// Deletes a category; its albums and the categories inside it move up to the category above
-/// (or the top level).
-pub fn delete_category(lib: &Library, id: i64) -> Result<()> {
-    let mut conn = lib.conn();
-    let tx = conn.transaction()?;
-    let parent: Option<i64> = tx.query_row("SELECT parent_id FROM categories WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
-    tx.execute("UPDATE categories SET parent_id = ?1 WHERE parent_id = ?2", params![parent, id])?;
-    tx.execute("UPDATE albums SET category_id = ?1 WHERE category_id = ?2", params![parent, id])?;
-    tx.execute("DELETE FROM categories WHERE id = ?1", [id])?;
-    tx.commit()?;
-    Ok(())
-}
-
-/// Files albums in a category, or takes them out of their category with `None`.
-pub fn set_album_category(lib: &Library, album_ids: &[i64], category_id: Option<i64>) -> Result<()> {
-    lib.conn().execute(
-        &format!("UPDATE albums SET category_id = ?1 WHERE id IN ({})", id_list(album_ids)),
-        [category_id],
-    )?;
-    Ok(())
-}
-
-pub fn create_album(lib: &Library, name: &str) -> Result<i64> {
+/// A new album inside `parent` (at the top level with `None`).
+pub fn create_album(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::msg("album name is empty"));
     }
     let conn = lib.conn();
-    conn.execute("INSERT INTO albums (name, created_at) VALUES (?1, ?2)", params![name, now()])?;
+    conn.execute("INSERT INTO albums (name, created_at, parent_id) VALUES (?1, ?2, ?3)", params![name, now(), parent])?;
     Ok(conn.last_insert_rowid())
 }
 
-/// The album named `name` (ignoring case), created if there is none.
-pub fn find_or_create_album(lib: &Library, name: &str) -> Result<i64> {
+/// The album named `name` (ignoring case) inside `parent` (at the top level with `None`),
+/// created if there is none.
+pub fn find_or_create_album(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
     let existing = lib
         .conn()
         .query_row(
-            "SELECT id FROM albums WHERE name = ?1 COLLATE NOCASE ORDER BY id LIMIT 1",
-            [name.trim()],
+            "SELECT id FROM albums WHERE name = ?1 COLLATE NOCASE AND parent_id IS ?2 ORDER BY id LIMIT 1",
+            params![name.trim(), parent],
             |r| r.get(0),
         )
         .optional()?;
     match existing {
         Some(id) => Ok(id),
-        None => create_album(lib, name),
+        None => create_album(lib, name, parent),
     }
+}
+
+/// The album at `path` (names from the top down), each one created if missing.
+pub fn find_or_create_album_path(lib: &Library, path: &[String]) -> Result<Option<i64>> {
+    let mut parent = None;
+    for name in path {
+        parent = Some(find_or_create_album(lib, name, parent)?);
+    }
+    Ok(parent)
 }
 
 pub fn rename_album(lib: &Library, id: i64, name: &str) -> Result<()> {
@@ -771,9 +790,44 @@ pub fn rename_album(lib: &Library, id: i64, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Deletes an album; its photos stay in the library.
+/// Moves an album inside another, or to the top level with `None`. An album can't go inside
+/// itself or one of the albums inside it.
+pub fn move_album(lib: &Library, id: i64, parent: Option<i64>) -> Result<()> {
+    let conn = lib.conn();
+    if parent.is_some_and(|p| album_and_inside(&conn, id).is_ok_and(|ids| ids.contains(&p))) {
+        return Err(AppError::msg("an album can't go inside itself"));
+    }
+    conn.execute("UPDATE albums SET parent_id = ?1 WHERE id = ?2", params![parent, id])?;
+    Ok(())
+}
+
+/// Deletes an album; its photos stay in the library and the albums inside it move up to the
+/// album above (or the top level).
 pub fn delete_album(lib: &Library, id: i64) -> Result<()> {
-    lib.conn().execute("DELETE FROM albums WHERE id = ?1", [id])?;
+    let mut conn = lib.conn();
+    let tx = conn.transaction()?;
+    let parent: Option<i64> = tx.query_row("SELECT parent_id FROM albums WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+    tx.execute("UPDATE albums SET parent_id = ?1 WHERE parent_id = ?2", params![parent, id])?;
+    tx.execute("DELETE FROM albums WHERE id = ?1", [id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Sets how the albums inside an album are ordered: "date" (oldest first), "newest" or "name".
+pub fn set_child_order(lib: &Library, album_id: i64, order: &str) -> Result<()> {
+    if !matches!(order, "date" | "newest" | "name") {
+        return Err(AppError::msg("unknown album order"));
+    }
+    lib.conn().execute("UPDATE albums SET child_order = ?1 WHERE id = ?2", params![order, album_id])?;
+    Ok(())
+}
+
+/// Sets how an album's page shows the albums inside: "inline" or "tiles".
+pub fn set_album_display(lib: &Library, album_id: i64, display: &str) -> Result<()> {
+    if !matches!(display, "inline" | "tiles") {
+        return Err(AppError::msg("unknown album display"));
+    }
+    lib.conn().execute("UPDATE albums SET display = ?1 WHERE id = ?2", params![display, album_id])?;
     Ok(())
 }
 
@@ -795,12 +849,21 @@ pub fn add_to_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()> {
     Ok(())
 }
 
-pub fn remove_from_album(lib: &Library, album_id: i64, ids: &[i64]) -> Result<()> {
-    lib.conn().execute(
-        &format!("DELETE FROM album_photos WHERE album_id = ?1 AND photo_id IN ({})", id_list(ids)),
-        [album_id],
+/// Takes photos out of an album, and with `inside` out of every album inside it too.
+pub fn remove_from_album(lib: &Library, album_id: i64, ids: &[i64], inside: bool) -> Result<()> {
+    let conn = lib.conn();
+    let albums = if inside { album_and_inside(&conn, album_id)? } else { vec![album_id] };
+    conn.execute(
+        &format!("DELETE FROM album_photos WHERE album_id IN ({}) AND photo_id IN ({})", id_list(&albums), id_list(ids)),
+        [],
     )?;
     Ok(())
+}
+
+/// Moves photos shown on album `from`'s page (in it or an album inside it) into album `to`.
+pub fn move_photos(lib: &Library, from: i64, to: i64, ids: &[i64]) -> Result<()> {
+    remove_from_album(lib, from, ids, true)?;
+    add_to_album(lib, to, ids)
 }
 
 pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()> {
@@ -808,215 +871,15 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
     Ok(())
 }
 
-// ---- album sections ----
-
-/// A named part of an album, like "Kyoto" in "2019 Japan", or "Day 2" inside Kyoto.
-#[derive(Debug, Clone, Serialize)]
-pub struct Section {
-    pub id: i64,
-    pub name: String,
-    /// The section it is in, if any.
-    pub parent_id: Option<i64>,
-    /// How deep it is nested (0 at the top).
-    pub depth: i64,
-    /// Number of sections directly inside it; photos only go in sections with none.
-    pub subsections: i64,
-    /// Photos in the section and its sub-sections (not trashed).
-    pub count: i64,
-}
-
-/// Where a section's photos go when it gets its first sub-section.
-pub const OTHER_SECTION: &str = "Other";
-
-/// The album's sections as a tree, each followed by the ones inside it. Each level is in
-/// order: by date, the one with the earliest photo (in it or below) first, empty ones last;
-/// by name, alphabetically.
-pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
-    struct Node {
-        id: i64,
-        name: String,
-        parent: Option<i64>,
-        count: i64,
-        first: Option<String>,
-        children: Vec<usize>,
-    }
-    let (by_date, mut nodes) = {
-        let conn = lib.conn();
-        let kind: Option<String> =
-            conn.query_row("SELECT section_kind FROM albums WHERE id = ?1", [album_id], |r| r.get(0)).optional()?;
-        let mut stmt = conn.prepare(
-            "SELECT s.id, s.name, s.parent_id, COUNT(p.id), MIN(p.taken_at)
-             FROM album_sections s
-               LEFT JOIN album_photos ap ON ap.section_id = s.id
-               LEFT JOIN photos p ON p.id = ap.photo_id AND p.trashed_at IS NULL
-             WHERE s.album_id = ?1
-             GROUP BY s.id ORDER BY s.id",
-        )?;
-        let rows = stmt.query_map([album_id], |r| {
-            Ok(Node { id: r.get(0)?, name: r.get(1)?, parent: r.get(2)?, count: r.get(3)?, first: r.get(4)?, children: vec![] })
-        })?;
-        (kind.as_deref() != Some("name"), rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    };
-    let index: HashMap<i64, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
-    let mut roots = Vec::new();
-    for i in 0..nodes.len() {
-        match nodes[i].parent.and_then(|p| index.get(&p)) {
-            Some(&p) => nodes[p].children.push(i),
-            None => roots.push(i),
-        }
-    }
-    // Totals and first photo of each subtree, children before parents.
-    fn sum(nodes: &mut [Node], i: usize) {
-        for c in nodes[i].children.clone() {
-            sum(nodes, c);
-            nodes[i].count += nodes[c].count;
-            if nodes[c].first.is_some() && (nodes[i].first.is_none() || nodes[c].first < nodes[i].first) {
-                nodes[i].first = nodes[c].first.clone();
-            }
-        }
-    }
-    for &r in &roots {
-        sum(&mut nodes, r);
-    }
-    let sort = |list: &mut Vec<usize>, nodes: &[Node]| {
-        list.sort_by_cached_key(|&i| {
-            let n = &nodes[i];
-            let date = if by_date { (n.first.is_none(), n.first.clone()) } else { (false, None) };
-            (date, n.name.to_lowercase(), n.id)
-        })
-    };
-    fn walk(nodes: &[Node], list: &[usize], depth: i64, out: &mut Vec<Section>, sort: &dyn Fn(&mut Vec<usize>, &[Node])) {
-        for &i in list {
-            let n = &nodes[i];
-            out.push(Section {
-                id: n.id,
-                name: n.name.clone(),
-                parent_id: n.parent,
-                depth,
-                subsections: n.children.len() as i64,
-                count: n.count,
-            });
-            let mut children = n.children.clone();
-            sort(&mut children, nodes);
-            walk(nodes, &children, depth + 1, out, sort);
-        }
-    }
-    sort(&mut roots, &nodes);
-    let mut out = Vec::with_capacity(nodes.len());
-    walk(&nodes, &roots, 0, &mut out, &sort);
-    Ok(out)
-}
-
-/// Sets how the album's sections are ordered: "date" or "name".
-pub fn set_section_kind(lib: &Library, album_id: i64, kind: &str) -> Result<()> {
-    if !matches!(kind, "date" | "name") {
-        return Err(AppError::msg("unknown section kind"));
-    }
-    lib.conn().execute("UPDATE albums SET section_kind = ?1 WHERE id = ?2", params![kind, album_id])?;
-    Ok(())
-}
-
-/// The section named `name` (ignoring case) inside `parent_id` (at the top of the album with
-/// `None`), created if there is none. A section that holds photos and gets its first
-/// sub-section hands its photos to an "Other" sub-section, so photos stay in sections
-/// without sub-sections.
-pub fn create_section(lib: &Library, album_id: i64, parent_id: Option<i64>, name: &str) -> Result<i64> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::msg("section name is empty"));
-    }
-    let mut conn = lib.conn();
-    let tx = conn.transaction()?;
-    if let Some(p) = parent_id {
-        let owner: Option<i64> = tx.query_row("SELECT album_id FROM album_sections WHERE id = ?1", [p], |r| r.get(0)).optional()?;
-        if owner != Some(album_id) {
-            return Err(AppError::msg("that section is not in this album"));
-        }
-    }
-    let find = |tx: &rusqlite::Transaction, name: &str| -> rusqlite::Result<Option<i64>> {
-        tx.query_row(
-            "SELECT id FROM album_sections WHERE album_id = ?1 AND parent_id IS ?2 AND name = ?3 COLLATE NOCASE
-             ORDER BY id LIMIT 1",
-            params![album_id, parent_id, name],
-            |r| r.get(0),
-        )
-        .optional()
-    };
-    if let Some(id) = find(&tx, name)? {
-        return Ok(id);
-    }
-    let insert = |tx: &rusqlite::Transaction, name: &str| -> rusqlite::Result<i64> {
-        tx.execute(
-            "INSERT INTO album_sections (album_id, parent_id, name, position) VALUES (?1, ?2, ?3, 0)",
-            params![album_id, parent_id, name],
-        )?;
-        Ok(tx.last_insert_rowid())
-    };
-    let id = insert(&tx, name)?;
-    if let Some(p) = parent_id {
-        let holds: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM album_photos WHERE section_id = ?1)", [p], |r| r.get(0))?;
-        if holds {
-            let other = match find(&tx, OTHER_SECTION)? {
-                Some(other) => other,
-                None => insert(&tx, OTHER_SECTION)?,
-            };
-            tx.execute("UPDATE album_photos SET section_id = ?1 WHERE section_id = ?2", [other, p])?;
-        }
-    }
-    tx.commit()?;
-    Ok(id)
-}
-
-pub fn rename_section(lib: &Library, id: i64, name: &str) -> Result<()> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(AppError::msg("section name is empty"));
-    }
-    lib.conn().execute("UPDATE album_sections SET name = ?1 WHERE id = ?2", params![name, id])?;
-    Ok(())
-}
-
-/// Deletes a section and the ones inside it; their photos stay in the album, in no section.
-pub fn delete_section(lib: &Library, id: i64) -> Result<()> {
-    lib.conn().execute("DELETE FROM album_sections WHERE id = ?1", [id])?;
-    Ok(())
-}
-
-/// Puts photos of the album into a section (one without sub-sections), or into none with `None`.
-pub fn set_photo_section(lib: &Library, album_id: i64, ids: &[i64], section_id: Option<i64>) -> Result<()> {
-    let conn = lib.conn();
-    if let Some(s) = section_id {
-        let found: Option<(i64, bool)> = conn
-            .query_row(
-                "SELECT album_id, EXISTS (SELECT 1 FROM album_sections c WHERE c.parent_id = s.id)
-                 FROM album_sections s WHERE id = ?1",
-                [s],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        match found {
-            Some((owner, _)) if owner != album_id => return Err(AppError::msg("that section is not in this album")),
-            None => return Err(AppError::msg("that section is not in this album")),
-            Some((_, true)) => return Err(AppError::msg("photos go in a section without sub-sections")),
-            _ => {}
-        }
-    }
-    conn.execute(
-        &format!("UPDATE album_photos SET section_id = ?1 WHERE album_id = ?2 AND photo_id IN ({})", id_list(ids)),
-        params![section_id, album_id],
-    )?;
-    Ok(())
-}
-
-/// Puts the album's photos that are in no section into one section per day taken
-/// (`YYYY-MM-DD`, reusing a section of that name). Returns how many days there were.
+/// Moves the album's own photos (not those in albums inside it) into one album inside it per
+/// day taken (`YYYY-MM-DD`, reusing an album of that name). Returns how many days there were.
 pub fn split_by_day(lib: &Library, album_id: i64) -> Result<usize> {
     let mut days: Vec<(String, Vec<i64>)> = Vec::new();
     {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "SELECT substr(p.taken_at, 1, 10), p.id FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
-             WHERE ap.album_id = ?1 AND ap.section_id IS NULL ORDER BY p.taken_at, p.id",
+             WHERE ap.album_id = ?1 ORDER BY p.taken_at, p.id",
         )?;
         let rows = stmt.query_map([album_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         for row in rows {
@@ -1028,8 +891,9 @@ pub fn split_by_day(lib: &Library, album_id: i64) -> Result<usize> {
         }
     }
     for (day, ids) in &days {
-        let section = create_section(lib, album_id, None, day)?;
-        set_photo_section(lib, album_id, ids, Some(section))?;
+        let inside = find_or_create_album(lib, day, Some(album_id))?;
+        remove_from_album(lib, album_id, ids, false)?;
+        add_to_album(lib, inside, ids)?;
     }
     Ok(days.len())
 }

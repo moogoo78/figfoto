@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use rusqlite::functions::FunctionFlags;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
-use crate::error::Result;
+use crate::error::{AppError, Result};
 
 /// Each entry upgrades the schema by one version (tracked in PRAGMA user_version).
 pub const MIGRATIONS: &[&str] = &[
@@ -261,7 +261,90 @@ ALTER TABLE albums RENAME COLUMN topic_id TO category_id;
 ALTER TABLE shortcuts RENAME COLUMN topic_id TO category_id;
 UPDATE albums SET section_kind = 'name' WHERE section_kind = 'topic';
 "#,
+    // v23: albums nest (Japan › Kyoto › Day 2) and replace both categories and sections. An
+    // album holds photos, other albums, or both; `display` says whether its page shows the
+    // albums inside as tiles or their photos inline under a heading each, and `child_order`
+    // orders them ("date": oldest first, "newest", "name"). Categories become albums shown as
+    // tiles; sections become albums inside their album (or section), taking its photos, except
+    // "Other" sections, whose photos go back to the section above. Rebuilds the album tables
+    // to drop the old columns (see `REBUILDS`).
+    r#"
+ALTER TABLE albums ADD COLUMN parent_id INTEGER;
+ALTER TABLE albums ADD COLUMN display TEXT NOT NULL DEFAULT 'inline';
+ALTER TABLE albums ADD COLUMN from_category INTEGER;
+ALTER TABLE albums ADD COLUMN from_section INTEGER;
+
+INSERT INTO albums (name, created_at, section_kind, display, from_category)
+    SELECT name, created_at, 'newest', 'tiles', id FROM categories ORDER BY id;
+UPDATE albums SET parent_id =
+    (SELECT up.id FROM categories c JOIN albums up ON up.from_category = c.parent_id WHERE c.id = albums.from_category)
+    WHERE from_category IS NOT NULL;
+UPDATE albums SET parent_id = (SELECT up.id FROM albums up WHERE up.from_category = albums.category_id)
+    WHERE category_id IS NOT NULL;
+UPDATE shortcuts SET album_id = (SELECT a.id FROM albums a WHERE a.from_category = shortcuts.category_id), category_id = NULL
+    WHERE category_id IS NOT NULL;
+
+INSERT INTO albums (name, created_at, section_kind, from_section)
+    SELECT s.name, a.created_at, a.section_kind, s.id FROM album_sections s JOIN albums a ON a.id = s.album_id ORDER BY s.id;
+UPDATE albums SET parent_id = COALESCE(
+    (SELECT up.id FROM album_sections s JOIN albums up ON up.from_section = s.parent_id WHERE s.id = albums.from_section),
+    (SELECT s.album_id FROM album_sections s WHERE s.id = albums.from_section))
+    WHERE from_section IS NOT NULL;
+INSERT OR IGNORE INTO album_photos (album_id, photo_id, position)
+    SELECT a.id, ap.photo_id, ap.position FROM album_photos ap JOIN albums a ON a.from_section = ap.section_id;
+DELETE FROM album_photos WHERE section_id IS NOT NULL;
+
+CREATE TEMP TABLE other_albums AS
+    SELECT a.id, a.parent_id FROM albums a JOIN album_sections s ON s.id = a.from_section
+    WHERE s.name = 'Other' COLLATE NOCASE AND s.parent_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM album_sections c WHERE c.parent_id = s.id);
+INSERT OR IGNORE INTO album_photos (album_id, photo_id, position)
+    SELECT o.parent_id, ap.photo_id, ap.position FROM album_photos ap JOIN other_albums o ON o.id = ap.album_id;
+DELETE FROM album_photos WHERE album_id IN (SELECT id FROM other_albums);
+DELETE FROM albums WHERE id IN (SELECT id FROM other_albums);
+DROP TABLE other_albums;
+
+CREATE TABLE albums_new (
+    id             INTEGER PRIMARY KEY,
+    name           TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    cover_photo_id INTEGER REFERENCES photos(id) ON DELETE SET NULL,
+    parent_id      INTEGER REFERENCES albums(id) ON DELETE SET NULL,
+    child_order    TEXT NOT NULL DEFAULT 'date',
+    display        TEXT NOT NULL DEFAULT 'inline'
+);
+INSERT INTO albums_new (id, name, created_at, cover_photo_id, parent_id, child_order, display)
+    SELECT id, name, created_at, cover_photo_id, parent_id, section_kind, display FROM albums;
+CREATE TABLE album_photos_new (
+    album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (album_id, photo_id)
+);
+INSERT INTO album_photos_new (album_id, photo_id, position) SELECT album_id, photo_id, position FROM album_photos;
+CREATE TABLE shortcuts_new (
+    id       INTEGER PRIMARY KEY,
+    album_id INTEGER NOT NULL UNIQUE REFERENCES albums(id) ON DELETE CASCADE
+);
+INSERT INTO shortcuts_new (id, album_id) SELECT id, album_id FROM shortcuts WHERE album_id IS NOT NULL;
+
+DROP TABLE shortcuts;
+DROP TABLE album_photos;
+DROP TABLE album_sections;
+DROP TABLE categories;
+DROP TABLE albums;
+ALTER TABLE albums_new RENAME TO albums;
+ALTER TABLE album_photos_new RENAME TO album_photos;
+ALTER TABLE shortcuts_new RENAME TO shortcuts;
+CREATE INDEX idx_albums_parent ON albums(parent_id);
+CREATE INDEX idx_album_photos_photo ON album_photos(photo_id);
+"#,
 ];
+
+/// Migrations (by the version they bring the library to) that rebuild tables. They run with
+/// foreign keys off, so dropping an old table doesn't cascade into the rows that point at it;
+/// the keys are checked before committing. A copy of the library is kept first.
+const REBUILDS: &[usize] = &[23];
 
 pub fn open(path: &Path) -> Result<Connection> {
     let mut conn = Connection::open(path)?;
@@ -271,7 +354,7 @@ pub fn open(path: &Path) -> Result<Connection> {
          PRAGMA synchronous = NORMAL;",
     )?;
     register_functions(&conn)?;
-    migrate(&mut conn)?;
+    migrate(&mut conn, path)?;
     Ok(conn)
 }
 
@@ -307,13 +390,33 @@ pub fn device_kind(make: Option<&str>, model: Option<&str>) -> &'static str {
     if phone { "phone" } else { "camera" }
 }
 
-fn migrate(conn: &mut Connection) -> Result<()> {
+fn migrate(conn: &mut Connection, path: &Path) -> Result<()> {
     let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+        let rebuild = REBUILDS.contains(&(i + 1));
+        if rebuild {
+            // A new library has nothing to lose.
+            if version > 0 {
+                let backup = path.with_file_name(format!("library.v{i}.bak.db"));
+                if !backup.exists() {
+                    conn.execute("VACUUM INTO ?1", [backup.to_string_lossy()])?;
+                }
+            }
+            conn.pragma_update(None, "foreign_keys", false)?;
+        }
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
+        if rebuild {
+            let broken: Option<String> = tx.query_row("PRAGMA foreign_key_check", [], |r| r.get(0)).optional()?;
+            if let Some(table) = broken {
+                return Err(AppError::msg(format!("updating the library left broken links in {table}")));
+            }
+        }
         tx.pragma_update(None, "user_version", i + 1)?;
         tx.commit()?;
+        if rebuild {
+            conn.pragma_update(None, "foreign_keys", true)?;
+        }
     }
     Ok(())
 }

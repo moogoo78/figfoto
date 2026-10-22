@@ -281,8 +281,8 @@ pub async fn list_albums(state: State<'_, AppState>) -> Result<Vec<Album>> {
 }
 
 #[tauri::command]
-pub async fn create_album(state: State<'_, AppState>, name: String) -> Result<i64> {
-    queries::create_album(&*state.lib()?, &name)
+pub async fn create_album(state: State<'_, AppState>, name: String, parent_id: Option<i64>) -> Result<i64> {
+    queries::create_album(&*state.lib()?, &name, parent_id)
 }
 
 #[tauri::command]
@@ -296,68 +296,23 @@ pub async fn delete_album(state: State<'_, AppState>, id: i64) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn list_categories(state: State<'_, AppState>) -> Result<Vec<queries::Category>> {
-    queries::list_categories(&*state.lib()?)
+pub async fn move_album(state: State<'_, AppState>, id: i64, parent_id: Option<i64>) -> Result<()> {
+    queries::move_album(&*state.lib()?, id, parent_id)
 }
 
 #[tauri::command]
-pub async fn create_category(state: State<'_, AppState>, name: String, parent_id: Option<i64>) -> Result<i64> {
-    queries::create_category(&*state.lib()?, &name, parent_id)
+pub async fn set_child_order(state: State<'_, AppState>, album_id: i64, order: String) -> Result<()> {
+    queries::set_child_order(&*state.lib()?, album_id, &order)
 }
 
 #[tauri::command]
-pub async fn rename_category(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
-    queries::rename_category(&*state.lib()?, id, &name)
+pub async fn set_album_display(state: State<'_, AppState>, album_id: i64, display: String) -> Result<()> {
+    queries::set_album_display(&*state.lib()?, album_id, &display)
 }
 
 #[tauri::command]
-pub async fn move_category(state: State<'_, AppState>, id: i64, parent_id: Option<i64>) -> Result<()> {
-    queries::move_category(&*state.lib()?, id, parent_id)
-}
-
-#[tauri::command]
-pub async fn delete_category(state: State<'_, AppState>, id: i64) -> Result<()> {
-    queries::delete_category(&*state.lib()?, id)
-}
-
-#[tauri::command]
-pub async fn set_shortcut(state: State<'_, AppState>, kind: String, id: i64, pinned: bool) -> Result<()> {
-    queries::set_shortcut(&*state.lib()?, &kind, id, pinned)
-}
-
-#[tauri::command]
-pub async fn set_album_category(state: State<'_, AppState>, album_ids: Vec<i64>, category_id: Option<i64>) -> Result<()> {
-    queries::set_album_category(&*state.lib()?, &album_ids, category_id)
-}
-
-#[tauri::command]
-pub async fn list_sections(state: State<'_, AppState>, album_id: i64) -> Result<Vec<queries::Section>> {
-    queries::list_sections(&*state.lib()?, album_id)
-}
-
-#[tauri::command]
-pub async fn create_section(state: State<'_, AppState>, album_id: i64, parent_id: Option<i64>, name: String) -> Result<i64> {
-    queries::create_section(&*state.lib()?, album_id, parent_id, &name)
-}
-
-#[tauri::command]
-pub async fn rename_section(state: State<'_, AppState>, id: i64, name: String) -> Result<()> {
-    queries::rename_section(&*state.lib()?, id, &name)
-}
-
-#[tauri::command]
-pub async fn delete_section(state: State<'_, AppState>, id: i64) -> Result<()> {
-    queries::delete_section(&*state.lib()?, id)
-}
-
-#[tauri::command]
-pub async fn set_section_kind(state: State<'_, AppState>, album_id: i64, kind: String) -> Result<()> {
-    queries::set_section_kind(&*state.lib()?, album_id, &kind)
-}
-
-#[tauri::command]
-pub async fn set_photo_section(state: State<'_, AppState>, album_id: i64, ids: Vec<i64>, section_id: Option<i64>) -> Result<()> {
-    queries::set_photo_section(&*state.lib()?, album_id, &ids, section_id)
+pub async fn set_shortcut(state: State<'_, AppState>, album_id: i64, pinned: bool) -> Result<()> {
+    queries::set_shortcut(&*state.lib()?, album_id, pinned)
 }
 
 #[tauri::command]
@@ -371,8 +326,13 @@ pub async fn add_to_album(state: State<'_, AppState>, album_id: i64, ids: Vec<i6
 }
 
 #[tauri::command]
-pub async fn remove_from_album(state: State<'_, AppState>, album_id: i64, ids: Vec<i64>) -> Result<()> {
-    queries::remove_from_album(&*state.lib()?, album_id, &ids)
+pub async fn remove_from_album(state: State<'_, AppState>, album_id: i64, ids: Vec<i64>, inside: bool) -> Result<()> {
+    queries::remove_from_album(&*state.lib()?, album_id, &ids, inside)
+}
+
+#[tauri::command]
+pub async fn move_photos(state: State<'_, AppState>, from: i64, to: i64, ids: Vec<i64>) -> Result<()> {
+    queries::move_photos(&*state.lib()?, from, to, &ids)
 }
 
 #[tauri::command]

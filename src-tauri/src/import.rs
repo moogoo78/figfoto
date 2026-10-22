@@ -74,14 +74,10 @@ pub struct ImportOptions<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FolderRole {
-    /// An album named after the folder.
+    /// An album named after the folder, inside the album of the folder above (if any).
+    /// Plans saved before albums nested said "section" or "category" for the same thing.
+    #[serde(alias = "section", alias = "category")]
     Album,
-    /// A section named after the folder, inside the album or section of the folder above
-    /// (an album when there is none above).
-    Section,
-    /// A category named after the folder, inside the category of the folder above; albums
-    /// below it are filed in it. Its own photos go in no album.
-    Category,
     /// Its photos go where the folder above's go.
     Parent,
     /// Not added, nor anything inside it.
@@ -142,44 +138,45 @@ enum Place {
     Skip,
     /// Added, but to no album.
     Loose,
-    /// Into this album, in the section at this path (none when empty); the album is filed in
-    /// the category at the last path (none when empty).
-    In(String, Vec<String>, Vec<String>),
+    /// Into the album at this path (names from the top down).
+    In(Vec<String>),
 }
 
-/// Follows `plan` from `root` down to `dir`: each category nests in the category above and
-/// ends the album above, each album starts afresh, each section nests in the album or section
-/// above, a skipped folder skips everything inside it.
+/// Follows `plan` from `root` down to `dir`: each album nests in the album above, a skipped
+/// folder skips everything inside it.
 fn place(root: &Path, dir: &Path, plan: &HashMap<String, FolderRole>) -> Place {
     let Ok(rel) = dir.strip_prefix(root) else { return Place::Loose };
     let names: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-    let (mut album, mut sections, mut categories) = (None::<String>, Vec::new(), Vec::new());
+    let mut albums = Vec::new();
     for depth in 0..=names.len() {
-        // A folder without a name (the root of a drive) can't name an album or section.
+        // A folder without a name (the root of a drive) can't name an album.
         let name = match depth {
             0 => root.file_name().map(|n| n.to_string_lossy().into_owned()),
             _ => Some(names[depth - 1].clone()),
         };
         match (plan.get(&names[..depth].join("/")).copied().unwrap_or(FolderRole::Parent), name) {
             (FolderRole::Skip, _) => return Place::Skip,
-            (FolderRole::Category, Some(name)) => {
-                categories.push(name);
-                album = None;
-                sections.clear();
-            }
-            (FolderRole::Album, Some(name)) => {
-                album = Some(name);
-                sections.clear();
-            }
-            (FolderRole::Section, Some(name)) if album.is_some() => sections.push(name),
-            (FolderRole::Section, Some(name)) => album = Some(name),
+            (FolderRole::Album, Some(name)) => albums.push(name),
             _ => {}
         }
     }
-    match album {
-        Some(album) => Place::In(album, sections, categories),
-        None => Place::Loose,
+    if albums.is_empty() { Place::Loose } else { Place::In(albums) }
+}
+
+/// The album at `path`, each one created if missing. An album that gets its first album
+/// inside this way orders them by name, as folder names aren't dates.
+fn album_at(lib: &Library, path: &[String]) -> Result<i64> {
+    let mut parent: Option<i64> = None;
+    for name in path {
+        if let Some(p) = parent {
+            let empty: bool = lib.conn().query_row("SELECT NOT EXISTS (SELECT 1 FROM albums WHERE parent_id = ?1)", [p], |r| r.get(0))?;
+            if empty {
+                queries::set_child_order(lib, p, "name")?;
+            }
+        }
+        parent = Some(queries::find_or_create_album(lib, name, parent)?);
     }
+    parent.ok_or_else(|| AppError::msg("no album to add to"))
 }
 
 enum Outcome {
@@ -231,7 +228,7 @@ pub fn run(
                 src.to_string_lossy(),
                 now(),
                 opts.folder_albums,
-                plan.is_some_and(|p| p.values().any(|r| *r == FolderRole::Section)),
+                false,
                 plan.is_some_and(|p| p.values().filter(|r| **r == FolderRole::Album).count() == 1 && p.get("") == Some(&FolderRole::Album)),
                 plan.map(|p| serde_json::to_string(p).unwrap()),
             ],
@@ -291,13 +288,8 @@ pub fn run(
             files.retain(|f| !f.parent().is_some_and(|d| matches!(places.get(d), Some(Place::Skip))));
             let mut album_of = HashMap::new();
             for (dir, p) in places {
-                if let Place::In(album, sections, categories) = p {
-                    let id = queries::find_or_create_album(lib, &album)?;
-                    if let Some(category) = queries::create_category_path(lib, &categories)? {
-                        // An album the user already filed somewhere stays there.
-                        lib.conn().execute("UPDATE albums SET category_id = ?1 WHERE id = ?2 AND category_id IS NULL", [category, id])?;
-                    }
-                    album_of.insert(dir, (id, sections));
+                if let Place::In(path) = p {
+                    album_of.insert(dir, album_at(lib, &path)?);
                 }
             }
             album_of
@@ -306,7 +298,7 @@ pub fn run(
         None => HashMap::new(),
     };
     // Photos (by hash) that end up in each album and section, added once the copying is done.
-    let album_hashes = Mutex::new(BTreeMap::<(i64, Vec<String>), Vec<String>>::new());
+    let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
     // Set when a problem makes every remaining file fail too (disk full, source gone).
     let stop = AtomicBool::new(false);
@@ -321,7 +313,7 @@ pub fn run(
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, src, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while adding photos: {}", panic_message(&panic)))));
         if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
-            album_hashes.lock().unwrap().entry(album.clone()).or_default().push(hash.clone());
+            album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
         }
         let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
         let mut p = progress.lock().unwrap();
@@ -349,8 +341,8 @@ pub fn run(
 
     let mut p = progress.into_inner().unwrap();
     let mut albums_done = HashSet::new();
-    for ((album, section), hashes) in album_hashes.into_inner().unwrap() {
-        if let Err(e) = add_by_hash(lib, album, &section, &hashes) {
+    for (album, hashes) in album_hashes.into_inner().unwrap() {
+        if let Err(e) = add_by_hash(lib, album, &hashes) {
             p.failed += 1;
             p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
         } else {
@@ -455,32 +447,46 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
-/// An album named after each folder that directly holds one of `files` (no sections), keyed
-/// by folder.
-fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf, (i64, Vec<String>)>> {
+/// A top-level album named after each folder that directly holds one of `files`, keyed by
+/// folder.
+fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf, i64>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
-        // A folder without a name (the root of a drive) can't name an album.
         if out.contains_key(dir) {
             continue;
         }
+        // A folder without a name (the root of a drive) can't name an album.
         if let Some(name) = dir.file_name() {
-            out.insert(dir.to_path_buf(), (queries::find_or_create_album(lib, &name.to_string_lossy())?, Vec::new()));
+            out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy(), None)?);
         }
     }
     Ok(out)
 }
 
-/// Adds the photos with these hashes to `album`, in date order, and into the section at
-/// `section` (names from the top down) if given.
-fn add_by_hash(lib: &Library, album: i64, section: &[String], hashes: &[String]) -> Result<()> {
+/// Adds the photos with these hashes to `album`, in date order. A photo already somewhere in
+/// the same top-level album (the user may have moved it) stays where it is.
+fn add_by_hash(lib: &Library, album: i64, hashes: &[String]) -> Result<()> {
     let mut photos: Vec<(String, i64)> = Vec::with_capacity(hashes.len());
     {
         let conn = lib.conn();
+        // Photos in any album of the tree `album` is in. The id is an integer, so formatting it
+        // into the SQL is safe.
+        let placed = format!(
+            "SELECT ap.photo_id FROM album_photos ap WHERE ap.album_id IN (
+                 WITH RECURSIVE up(id, parent) AS (
+                     SELECT id, parent_id FROM albums WHERE id = {album}
+                   UNION
+                     SELECT a.id, a.parent_id FROM albums a JOIN up ON a.id = up.parent),
+                 sub(id) AS (
+                     SELECT id FROM up WHERE parent IS NULL
+                   UNION
+                     SELECT a.id FROM albums a JOIN sub ON a.parent_id = sub.id)
+                 SELECT id FROM sub)"
+        );
         // Chunked to stay under SQLite's limit on query parameters.
         for chunk in hashes.chunks(5000) {
             let marks = vec!["?"; chunk.len()].join(",");
-            let mut stmt = conn.prepare(&format!("SELECT taken_at, id FROM photos WHERE hash IN ({marks})"))?;
+            let mut stmt = conn.prepare(&format!("SELECT taken_at, id FROM photos WHERE hash IN ({marks}) AND id NOT IN ({placed})"))?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| Ok((r.get(0)?, r.get(1)?)))?;
             for row in rows {
                 photos.push(row?);
@@ -490,30 +496,7 @@ fn add_by_hash(lib: &Library, album: i64, section: &[String], hashes: &[String])
     photos.sort();
     photos.dedup();
     let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
-    queries::add_to_album(lib, album, &ids)?;
-    if !section.is_empty() {
-        // Folder names aren't dates, so an album that gets its first sections this way lists
-        // them by name; one the user already split keeps its kind.
-        if queries::list_sections(lib, album)?.is_empty() {
-            queries::set_section_kind(lib, album, "name")?;
-        }
-        let mut leaf = None;
-        for name in section {
-            leaf = Some(queries::create_section(lib, album, leaf, name)?);
-        }
-        // A folder that also has subfolders: its own photos go in its "Other" sub-section.
-        if queries::list_sections(lib, album)?.iter().any(|s| Some(s.id) == leaf && s.subsections > 0) {
-            leaf = Some(queries::create_section(lib, album, leaf, queries::OTHER_SECTION)?);
-        }
-        let section = leaf.unwrap_or_default();
-        // Photos the user already put in a section keep it.
-        let conn = lib.conn();
-        let mut stmt = conn.prepare("UPDATE album_photos SET section_id = ?1 WHERE album_id = ?2 AND photo_id = ?3 AND section_id IS NULL")?;
-        for id in &ids {
-            stmt.execute([section, album, *id])?;
-        }
-    }
-    Ok(())
+    queries::add_to_album(lib, album, &ids)
 }
 
 fn import_one(
