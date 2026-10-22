@@ -227,6 +227,12 @@ ALTER TABLE backup_targets ADD COLUMN kind TEXT NOT NULL DEFAULT 'disk';
     r#"
 ALTER TABLE albums ADD COLUMN section_kind TEXT NOT NULL DEFAULT 'date';
 "#,
+    // v18: sections nest (Kyoto › Day 2 › Morning); photos only go in sections without
+    // sub-sections. Deleting a section deletes the ones inside it.
+    r#"
+ALTER TABLE album_sections ADD COLUMN parent_id INTEGER REFERENCES album_sections(id) ON DELETE CASCADE;
+CREATE INDEX idx_album_sections_parent ON album_sections(parent_id);
+"#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

@@ -672,11 +672,11 @@ fn albums_have_sections() {
     queries::add_to_album(&lib, japan, &ids).unwrap();
     queries::add_to_album(&lib, other, &ids).unwrap();
 
-    let kyoto = queries::create_section(&lib, japan, " Kyoto ").unwrap();
-    assert_eq!(queries::create_section(&lib, japan, "kyoto").unwrap(), kyoto, "same name, any case");
-    let nara = queries::create_section(&lib, japan, "Nara").unwrap();
+    let kyoto = queries::create_section(&lib, japan, None, " Kyoto ").unwrap();
+    assert_eq!(queries::create_section(&lib, japan, None, "kyoto").unwrap(), kyoto, "same name, any case");
+    let nara = queries::create_section(&lib, japan, None, "Nara").unwrap();
     // A section of another album can't take this album's photos.
-    let elsewhere = queries::create_section(&lib, other, "Kyoto").unwrap();
+    let elsewhere = queries::create_section(&lib, other, None, "Kyoto").unwrap();
     assert_ne!(elsewhere, kyoto);
     assert!(queries::set_photo_section(&lib, japan, &ids[..1], Some(elsewhere)).is_err());
     queries::delete_section(&lib, elsewhere).unwrap();
@@ -730,6 +730,61 @@ fn albums_have_sections() {
     // Deleting the album removes its sections.
     queries::delete_album(&lib, japan).unwrap();
     assert!(sections(japan).is_empty());
+}
+
+#[test]
+fn sections_nest() {
+    let Env { _tmp, src, lib } = env();
+    three_photos(&lib, &src);
+    let bytes = with_exif(jpeg_bytes(&picture(3, 64, 64), 90), "2021:07:16 09:00:00", "Cam");
+    write(&src.join("later/p3.jpg"), &bytes);
+    import_all(&lib, &src.join("later"));
+    let ids: Vec<i64> = queries::list_photos(&lib, &Filter::default(), Sort::TakenAsc, 0, 10).unwrap().iter().map(|p| p.id).collect();
+    let japan = queries::create_album(&lib, "Japan").unwrap();
+    queries::add_to_album(&lib, japan, &ids).unwrap();
+    let tree = || -> Vec<(String, i64, i64, i64)> {
+        queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.depth, s.count, s.subsections)).collect()
+    };
+    let row = |name: &str, depth, count, subs| (name.to_string(), depth, count, subs);
+
+    let kyoto = queries::create_section(&lib, japan, None, "Kyoto").unwrap();
+    queries::set_photo_section(&lib, japan, &ids[..3], Some(kyoto)).unwrap();
+    // Kyoto's first sub-section hands its photos to an "Other" sub-section.
+    let day2 = queries::create_section(&lib, japan, Some(kyoto), "Day 2").unwrap();
+    assert_eq!(tree(), vec![row("Kyoto", 0, 3, 2), row("Other", 1, 3, 0), row("Day 2", 1, 0, 0)]);
+    assert!(queries::set_photo_section(&lib, japan, &ids[..1], Some(kyoto)).is_err(), "Kyoto has sub-sections now");
+    assert_eq!(queries::create_section(&lib, japan, Some(kyoto), "day 2").unwrap(), day2, "same name, same parent");
+
+    queries::set_photo_section(&lib, japan, &ids[2..3], Some(day2)).unwrap();
+    let nara = queries::create_section(&lib, japan, None, "Nara").unwrap();
+    queries::set_photo_section(&lib, japan, &ids[3..], Some(nara)).unwrap();
+    queries::create_section(&lib, japan, Some(day2), "Morning").unwrap();
+    // By date at every level; a section counts the photos in its sub-sections.
+    assert_eq!(
+        tree(),
+        vec![row("Kyoto", 0, 3, 2), row("Other", 1, 2, 0), row("Day 2", 1, 1, 2), row("Other", 2, 1, 0), row("Morning", 2, 0, 0), row("Nara", 0, 1, 0)]
+    );
+    let f = Filter { album_id: Some(japan), ..Default::default() };
+    let order = || -> Vec<i64> { queries::list_photos(&lib, &f, Sort::Section, 0, 10).unwrap().iter().map(|p| p.id).collect() };
+    assert_eq!(order(), ids);
+    let buckets: Vec<(String, i64, i64, i64)> =
+        queries::date_buckets(&lib, &f, Sort::Section).unwrap().into_iter().map(|b| (b.label, b.depth, b.count, b.total)).collect();
+    assert_eq!(
+        buckets,
+        vec![row("Kyoto", 0, 0, 3), row("Other", 1, 2, 2), row("Day 2", 1, 0, 1), row("Other", 2, 1, 1), row("Morning", 2, 0, 0), row("Nara", 0, 1, 1)]
+    );
+    assert_eq!(queries::get_photo(&lib, ids[2]).unwrap().sections.get(&japan).map(String::as_str), Some("Kyoto › Day 2 › Other"));
+
+    // By topic: by name at every level.
+    queries::set_section_kind(&lib, japan, "topic").unwrap();
+    let names: Vec<(String, i64)> = tree().into_iter().map(|(n, d, ..)| (n, d)).collect();
+    assert_eq!(names, vec![("Kyoto".into(), 0), ("Day 2".into(), 1), ("Morning".into(), 2), ("Other".into(), 2), ("Other".into(), 1), ("Nara".into(), 0)]);
+    assert_eq!(order(), vec![ids[2], ids[0], ids[1], ids[3]]);
+
+    // Deleting a section deletes the ones inside it; their photos stay in the album.
+    queries::delete_section(&lib, kyoto).unwrap();
+    assert_eq!(tree(), vec![row("Nara", 0, 1, 0)]);
+    assert_eq!(queries::list_albums(&lib).unwrap().iter().find(|a| a.id == japan).unwrap().count, 4);
 }
 
 #[test]
@@ -930,32 +985,51 @@ fn subfolders_can_become_sections() {
     write(&tree.join("Japan/Kyoto/a.jpg"), &photo(1, 2));
     write(&tree.join("Japan/Kyoto/Day 2/c.jpg"), &photo(2, 3));
     write(&tree.join("Japan/Nara/d.jpg"), &photo(3, 4));
+    write(&tree.join("Japan/Nara/Park/Morning/e.jpg"), &photo(5, 6));
     write(&tree.join("loose.jpg"), &photo(4, 5));
     let opts = ImportOptions { folder_albums: true, folder_sections: true, ..Default::default() };
     let p = import::run(&lib, &tree, &opts, &AtomicBool::new(false), |_| {}).unwrap();
-    assert_eq!((p.added, p.albums), (5, 2));
+    assert_eq!((p.added, p.albums), (6, 2));
     assert!(queries::list_imports(&lib).unwrap()[0].folder_sections);
 
-    // Newest album first: my-fotos holds the 5th, Japan's latest is the 4th.
+    // Newest album first: Japan's latest is the 6th, my-fotos holds the 5th.
     let albums: Vec<(String, i64)> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.count)).collect();
-    assert_eq!(albums, vec![("my-fotos".into(), 1), ("Japan".into(), 4)]);
+    assert_eq!(albums, vec![("Japan".into(), 5), ("my-fotos".into(), 1)]);
     let japan = queries::list_albums(&lib).unwrap().into_iter().find(|a| a.name == "Japan").unwrap().id;
-    let sections = || -> Vec<(String, i64)> {
-        queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.count)).collect()
-    };
-    // Subfolder sections are topics, listed by name.
+    // Subfolder sections are topics, listed by name, and nest like the folders, at any depth.
+    // A folder's own photos go in its "Other" sub-section when it also has subfolders.
     assert_eq!(queries::list_albums(&lib).unwrap().into_iter().find(|a| a.id == japan).unwrap().section_kind, "topic");
-    assert_eq!(sections(), vec![("Kyoto".into(), 1), ("Kyoto / Day 2".into(), 1), ("Nara".into(), 1)]);
+    let depths = || -> Vec<(String, i64, i64)> {
+        queries::list_sections(&lib, japan).unwrap().into_iter().map(|s| (s.name, s.depth, s.count)).collect()
+    };
+    let row = |name: &str, depth, count| (name.to_string(), depth, count);
+    assert_eq!(
+        depths(),
+        vec![
+            row("Kyoto", 0, 2), row("Day 2", 1, 1), row("Other", 1, 1),
+            row("Nara", 0, 2), row("Other", 1, 1), row("Park", 1, 1), row("Morning", 2, 1),
+        ]
+    );
     let f = Filter { album_id: Some(japan), ..Default::default() };
     let names: Vec<String> = queries::list_photos(&lib, &f, Sort::Section, 0, 10).unwrap().into_iter().map(|p| p.orig_name).collect();
-    assert_eq!(names, vec!["a.jpg", "c.jpg", "d.jpg", "b.jpg"]);
+    assert_eq!(names, vec!["c.jpg", "a.jpg", "d.jpg", "e.jpg", "b.jpg"]);
+    assert_eq!(
+        queries::get_photo(&lib, queries::list_photos(&lib, &f, Sort::Section, 3, 1).unwrap()[0].id).unwrap().sections.get(&japan).map(String::as_str),
+        Some("Nara › Park › Morning")
+    );
 
     // Importing again keeps sections the user changed.
-    let nara = queries::list_sections(&lib, japan).unwrap()[2].id;
-    let a = queries::list_photos(&lib, &f, Sort::Section, 0, 1).unwrap()[0].id;
-    queries::set_photo_section(&lib, japan, &[a], Some(nara)).unwrap();
+    let nara = queries::list_sections(&lib, japan).unwrap()[4].id;
+    let c = queries::list_photos(&lib, &f, Sort::Section, 0, 1).unwrap()[0].id;
+    queries::set_photo_section(&lib, japan, &[c], Some(nara)).unwrap();
     import::run(&lib, &tree, &opts, &AtomicBool::new(false), |_| {}).unwrap();
-    assert_eq!(sections(), vec![("Kyoto".into(), 0), ("Kyoto / Day 2".into(), 1), ("Nara".into(), 2)]);
+    assert_eq!(
+        depths(),
+        vec![
+            row("Kyoto", 0, 1), row("Day 2", 1, 0), row("Other", 1, 1),
+            row("Nara", 0, 3), row("Other", 1, 2), row("Park", 1, 1), row("Morning", 2, 1),
+        ]
+    );
 }
 
 /// Inserts `n` photo rows directly (no files), spread over many days, newest id = latest photo.

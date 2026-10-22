@@ -307,8 +307,8 @@ pub async fn list_sections(state: State<'_, AppState>, album_id: i64) -> Result<
 }
 
 #[tauri::command]
-pub async fn create_section(state: State<'_, AppState>, album_id: i64, name: String) -> Result<i64> {
-    queries::create_section(&*state.lib()?, album_id, &name)
+pub async fn create_section(state: State<'_, AppState>, album_id: i64, parent_id: Option<i64>, name: String) -> Result<i64> {
+    queries::create_section(&*state.lib()?, album_id, parent_id, &name)
 }
 
 #[tauri::command]

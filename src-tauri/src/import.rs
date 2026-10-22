@@ -63,7 +63,7 @@ pub struct ImportOptions<'a> {
     /// library are added to it too.
     pub folder_albums: bool,
     /// With `folder_albums`: only the folders right under the source folder become albums;
-    /// photos in deeper folders go into a section of that album named after the rest of the
+    /// photos in deeper folders go into nested sections of that album named after the rest of the
     /// path ("Kyoto", "Kyoto / Day 1"). Photos directly in the source folder still go to an
     /// album named after it.
     pub folder_sections: bool,
@@ -164,7 +164,7 @@ pub fn run(
     let source = opts.source.map(str::trim).filter(|s| !s.is_empty());
     let album_of = if opts.folder_albums { folder_album_ids(lib, src, &files, opts.folder_sections)? } else { HashMap::new() };
     // Photos (by hash) that end up in each album and section, added once the copying is done.
-    let album_hashes = Mutex::new(BTreeMap::<(i64, Option<String>), Vec<String>>::new());
+    let album_hashes = Mutex::new(BTreeMap::<(i64, Vec<String>), Vec<String>>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
     // Set when a problem makes every remaining file fail too (disk full, source gone).
     let stop = AtomicBool::new(false);
@@ -208,7 +208,7 @@ pub fn run(
     let mut p = progress.into_inner().unwrap();
     let mut albums_done = HashSet::new();
     for ((album, section), hashes) in album_hashes.into_inner().unwrap() {
-        if let Err(e) = add_by_hash(lib, album, section.as_deref(), &hashes) {
+        if let Err(e) = add_by_hash(lib, album, &section, &hashes) {
             p.failed += 1;
             p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
         } else {
@@ -313,14 +313,14 @@ fn was_deleted(lib: &Library, hash: &str) -> Result<bool> {
     Ok(found.is_some())
 }
 
-/// The album (and, with `sections`, the section name) for each folder that directly holds
-/// one of `files`, keyed by folder.
+/// The album (and, with `sections`, the section path inside it) for each folder that directly
+/// holds one of `files`, keyed by folder.
 fn folder_album_ids(
     lib: &Library,
     root: &Path,
     files: &[PathBuf],
     sections: bool,
-) -> Result<HashMap<PathBuf, (i64, Option<String>)>> {
+) -> Result<HashMap<PathBuf, (i64, Vec<String>)>> {
     let mut out = HashMap::new();
     for dir in files.iter().filter_map(|f| f.parent()) {
         if out.contains_key(dir) {
@@ -331,10 +331,10 @@ fn folder_album_ids(
             _ => Vec::new(),
         };
         let (name, section) = match parts.split_first() {
-            Some((album, rest)) => (album.clone(), Some(rest.join(" / ")).filter(|s| !s.is_empty())),
+            Some((album, rest)) => (album.clone(), rest.to_vec()),
             // A folder without a name (the root of a drive) can't name an album.
             None => match dir.file_name() {
-                Some(name) => (name.to_string_lossy().into_owned(), None),
+                Some(name) => (name.to_string_lossy().into_owned(), Vec::new()),
                 None => continue,
             },
         };
@@ -343,8 +343,9 @@ fn folder_album_ids(
     Ok(out)
 }
 
-/// Adds the photos with these hashes to `album`, in date order, and into `section` if given.
-fn add_by_hash(lib: &Library, album: i64, section: Option<&str>, hashes: &[String]) -> Result<()> {
+/// Adds the photos with these hashes to `album`, in date order, and into the section at
+/// `section` (names from the top down) if given.
+fn add_by_hash(lib: &Library, album: i64, section: &[String], hashes: &[String]) -> Result<()> {
     let mut photos: Vec<(String, i64)> = Vec::with_capacity(hashes.len());
     {
         let conn = lib.conn();
@@ -362,13 +363,21 @@ fn add_by_hash(lib: &Library, album: i64, section: Option<&str>, hashes: &[Strin
     photos.dedup();
     let ids: Vec<i64> = photos.into_iter().map(|(_, id)| id).collect();
     queries::add_to_album(lib, album, &ids)?;
-    if let Some(name) = section {
+    if !section.is_empty() {
         // Folder names are topics, so an album that gets its first sections this way lists
         // them by name; one the user already split keeps its kind.
         if queries::list_sections(lib, album)?.is_empty() {
             queries::set_section_kind(lib, album, "topic")?;
         }
-        let section = queries::create_section(lib, album, name)?;
+        let mut leaf = None;
+        for name in section {
+            leaf = Some(queries::create_section(lib, album, leaf, name)?);
+        }
+        // A folder that also has subfolders: its own photos go in its "Other" sub-section.
+        if queries::list_sections(lib, album)?.iter().any(|s| Some(s.id) == leaf && s.subsections > 0) {
+            leaf = Some(queries::create_section(lib, album, leaf, queries::OTHER_SECTION)?);
+        }
+        let section = leaf.unwrap_or_default();
         // Photos the user already put in a section keep it.
         let conn = lib.conn();
         let mut stmt = conn.prepare("UPDATE album_photos SET section_id = ?1 WHERE album_id = ?2 AND photo_id = ?3 AND section_id IS NULL")?;

@@ -71,10 +71,17 @@ export interface Album {
 
 export type SectionKind = "date" | "topic";
 
-/** A named part of an album, like "Kyoto" in "2019 Japan". */
+/** A named part of an album, like "Kyoto" in "2019 Japan", or "Day 2" inside Kyoto. */
 export interface Section {
   id: number;
   name: string;
+  /** The section it is in, if any. */
+  parentId: number | null;
+  /** How deep it is nested (0 at the top). */
+  depth: number;
+  /** Sections directly inside it; photos only go in sections with none. */
+  subsections: number;
+  /** Photos in it and its sub-sections. */
   count: number;
 }
 
@@ -90,7 +97,7 @@ export interface PhotoDetail {
   photo: Photo;
   tags: Tag[];
   albums: Album[];
-  /** The photo's section name in each album it has one in, keyed by album id. */
+  /** The photo's section path ("Kyoto › Day 2") in each album it has one in, keyed by album id. */
   sections: Record<number, string>;
 }
 
@@ -101,6 +108,14 @@ export interface Bucket {
   section: number | null;
   /** When sorted by section: the section name (empty for no section). */
   label: string;
+  /** When sorted by section: how deep the section is nested (0 at the top). */
+  depth: number;
+  /** When sorted by section: the section it is in, if any. */
+  parent: number | null;
+  /** When sorted by section: number of sections directly inside it. */
+  subsections: number;
+  /** Photos in it and its sub-sections (`count` is only the ones directly in it). */
+  total: number;
 }
 
 export interface Counts {

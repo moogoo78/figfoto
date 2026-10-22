@@ -29,6 +29,8 @@
   /** Album page: the Sections menu, and the name being typed for a new section. */
   let sectionMenu = $state(false);
   let newSectionName = $state<string | null>(null);
+  /** The section the new one goes inside (null: at the top of the album). */
+  let newSectionParent = $state<{ id: number; name: string } | null>(null);
 
   const key = $derived(JSON.stringify([store.filter, store.sort]));
   let loadedKey = "";
@@ -154,14 +156,17 @@
     if (action === "album") newAlbumName = day;
   }
 
-  /** Adds a section to the album; the selected photos, if any, go into it. */
+  /** Adds a section to the album (or inside `newSectionParent`); the selected photos, if any,
+   * go into it. */
   async function createSection() {
     const name = newSectionName?.trim();
+    const parent = newSectionParent?.id ?? null;
     newSectionName = null;
+    newSectionParent = null;
     if (!name || albumId == null) return;
     const [album, ids] = [albumId, selected];
     await store.mutate(async () => {
-      const id = await api.createSection(album, name);
+      const id = await api.createSection(album, parent, name);
       if (ids.length) await api.setPhotoSection(album, ids, id);
     }, ids.length ? t("Section “{name}” made with {n} photo(s)", { name, n: ids.length }) : t("Section “{name}” added", { name }));
     store.sort = "section";
@@ -189,14 +194,19 @@
     if (section != null) store.sort = "section";
   }
 
-  async function onsection(action: "rename" | "delete" | "drop", id: number, arg: { name?: string; ids?: number[] }) {
+  async function onsection(action: "rename" | "delete" | "drop" | "add", id: number, arg: { name?: string; ids?: number[]; subsections?: number }) {
     if (albumId == null) return;
     const album = albumId;
-    if (action === "rename" && arg.name) store.mutate(() => api.renameSection(id, arg.name!));
+    if (action === "add") {
+      newSectionParent = { id, name: arg.name ?? "" };
+      newSectionName = "";
+    } else if (action === "rename" && arg.name) store.mutate(() => api.renameSection(id, arg.name!));
     else if (action === "drop" && arg.ids?.length) {
       store.mutate(() => api.setPhotoSection(album, arg.ids!, id || null), t("Moved {n} photo(s)", { n: arg.ids.length }));
     } else if (action === "delete") {
-      const msg = t("Delete section “{name}”? Its photos stay in the album.", { name: arg.name ?? "" });
+      const msg = arg.subsections
+        ? t("Delete section “{name}” and the sections inside it? Their photos stay in the album.", { name: arg.name ?? "" })
+        : t("Delete section “{name}”? Its photos stay in the album.", { name: arg.name ?? "" });
       if (await ask(msg, { title: t("Delete section"), kind: "warning" })) store.mutate(() => api.deleteSection(id));
     }
   }
@@ -252,13 +262,15 @@
       {#if newSectionName != null}
         <input
           class="albumname"
-          placeholder={selected.length ? t("Section for {n} selected", { n: selected.length }) : t("Section name")}
+          placeholder={newSectionParent
+            ? t("Sub-section of “{name}”", { name: newSectionParent.name })
+            : selected.length ? t("Section for {n} selected", { n: selected.length }) : t("Section name")}
           bind:value={newSectionName}
           use:focusSelect
-          onblur={() => (newSectionName = null)}
+          onblur={() => { newSectionName = null; newSectionParent = null; }}
           onkeydown={(e) => {
             if (e.key === "Enter") createSection();
-            if (e.key === "Escape") newSectionName = null;
+            if (e.key === "Escape") { newSectionName = null; newSectionParent = null; }
             e.stopPropagation();
           }} />
         <button class="primary" onmousedown={(e) => e.preventDefault()} onclick={createSection}
@@ -380,7 +392,10 @@
               else if (v) moveToSection(v === "none" ? null : Number(v));
             }}>
             <option value="">{t("Move to section…")}</option>
-            {#each store.sections as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+            <!-- Photos only go in sections without sub-sections; the others just show the tree. -->
+            {#each store.sections as s (s.id)}
+              <option value={s.id} disabled={s.subsections > 0}>{"\u00a0\u00a0\u00a0".repeat(s.depth)}{s.name}</option>
+            {/each}
             {#if store.sections.length}<option value="none">{t("No section")}</option>{/if}
             <option value="new">{t("New section…")}</option>
           </select>

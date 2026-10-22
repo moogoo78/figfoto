@@ -128,11 +128,13 @@
 
          - \*topic from added folders (my-fotos/Travel/2019 Kyoto)
 
-         - section (Kyoto, Nara…; one level, a photo in one per album)
+         - section (Kyoto, Nara…; nest to any depth: Kyoto › Day 2 › Morning; a photo in one per album)
 
-            - make: by hand / split by day / added subfolders
+            - make: by hand / split by day / added subfolders (nested like the folders)
 
-            - two kinds per album: by date (sections in the order their photos were taken) or by topic (by name); added subfolders → by topic
+            - photos only in sections without sub-sections; a section's own photos move to an "Other" sub-section when it gets its first
+
+            - two kinds per album, at every level: by date (sections in the order their photos were taken) or by topic (by name); added subfolders → by topic
 
             - album page: headings in that order, "No section" last
 

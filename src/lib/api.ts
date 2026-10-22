@@ -48,8 +48,10 @@ export const api = {
   /** `topicId` null takes the albums out of their topic. */
   setAlbumTopic: (albumIds: number[], topicId: number | null) => invoke<void>("set_album_topic", { albumIds, topicId }),
   listSections: (albumId: number) => invoke<Section[]>("list_sections", { albumId }),
-  /** Reuses the album's section with that name (any case), else adds one at the end. */
-  createSection: (albumId: number, name: string) => invoke<number>("create_section", { albumId, name }),
+  /** Reuses the section with that name (any case) in `parentId` (the top with null), else adds
+   * one. A section holding photos hands them to an "Other" sub-section when it gets its first. */
+  createSection: (albumId: number, parentId: number | null, name: string) =>
+    invoke<number>("create_section", { albumId, parentId, name }),
   renameSection: (id: number, name: string) => invoke<void>("rename_section", { id, name }),
   deleteSection: (id: number) => invoke<void>("delete_section", { id }),
   setSectionKind: (albumId: number, kind: SectionKind) => invoke<void>("set_section_kind", { albumId, kind }),

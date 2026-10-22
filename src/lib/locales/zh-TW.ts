@@ -291,6 +291,9 @@ export const zhTW: Record<string, string> = {
   "Sections in order of their names": "分段依名稱排列",
   "Delete section": "刪除分段",
   "Delete section “{name}”? Its photos stay in the album.": "要刪除分段「{name}」嗎？其中的照片仍會留在相簿裡。",
+  "Delete section “{name}” and the sections inside it? Their photos stay in the album.": "要刪除分段「{name}」及其中的子分段嗎？其中的照片仍會留在相簿裡。",
+  "Add a sub-section": "新增子分段",
+  "Sub-section of “{name}”": "「{name}」的子分段名稱",
   "Subfolders become sections": "子資料夾成為分段",
   "(2019 Japan/Kyoto → album “2019 Japan”, section “Kyoto”)": "（2019 Japan/Kyoto → 相簿「2019 Japan」、分段「Kyoto」）",
   "Each folder right inside the chosen folder becomes an album named after it, and the folders inside those become sections of that album (e.g. 2019 Japan / Kyoto). Photos right in the chosen folder go to an album named after it. Photos already in the library are added without a second copy.":

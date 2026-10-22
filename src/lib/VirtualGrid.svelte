@@ -21,10 +21,10 @@
     onselect: (index: number, e: MouseEvent) => void;
     /** Header buttons: select a day's photos, or make an album from them. */
     ondayaction?: (action: "select" | "album", day: string, start: number, count: number) => void;
-    /** Section headings (album sorted by section): rename, reorder or delete a section, or
-     * drop photos (`ids`) on it. Section 0 is "No section". */
-    onsection?: (action: "rename" | "delete" | "drop", section: number, arg: { name?: string; ids?: number[] }) => void;
-    /** Sections whose photos are hidden, and the heading caret that hides or shows them. */
+    /** Section headings (album sorted by section): rename, delete or add a sub-section to a
+     * section, or drop photos (`ids`) on it. Section 0 is "No section". */
+    onsection?: (action: "rename" | "delete" | "drop" | "add", section: number, arg: { name?: string; ids?: number[]; subsections?: number }) => void;
+    /** Sections whose photos (and sub-sections) are hidden, and the heading caret that hides or shows them. */
     collapsed?: number[];
     ontoggle?: (section: number) => void;
     /** Badge each photo with where it came from (phone, camera, LINE…). */
@@ -47,16 +47,35 @@
   const cell = $derived(Math.max(40, (width - PAD - padRight - GAP * (cols - 1)) / cols));
 
   type Row =
-    | { kind: "header"; top: number; day: string; count: number; start: number; section: number | null; label: string }
+    | {
+        kind: "header"; top: number; day: string; count: number; start: number; section: number | null; label: string;
+        depth: number; subsections: number;
+      }
     | { kind: "photos"; top: number; start: number; n: number };
+
+  /** Whether a collapsed section holds this one (at any depth). */
+  function inCollapsed(parent: number | null, parents: Map<number, number | null>): boolean {
+    for (let p = parent; p != null; p = parents.get(p) ?? null) if (collapsed.includes(p)) return true;
+    return false;
+  }
 
   const layout = $derived.by(() => {
     const rows: Row[] = [];
+    const parents = new Map(list.buckets.flatMap((b) => (b.section ? [[b.section, b.parent] as const] : [])));
     let top = PAD;
     let index = 0;
     for (const b of list.buckets) {
+      if (inCollapsed(b.parent, parents)) {
+        index += b.count;
+        continue;
+      }
       if (b.day || b.section != null) {
-        rows.push({ kind: "header", top, day: b.day, count: b.count, start: index, section: b.section, label: b.label });
+        // A section's count is the photos in it and its sub-sections, which follow it in order.
+        const count = b.section != null ? b.total : b.count;
+        rows.push({
+          kind: "header", top, day: b.day, count, start: index, section: b.section, label: b.label,
+          depth: b.depth, subsections: b.subsections,
+        });
         top += HEADER;
       }
       const hidden = b.section != null && collapsed.includes(b.section);
@@ -160,8 +179,9 @@
       {#if row.kind === "header" && row.section != null}
         {@const id = row.section}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <h3 class="day section" class:drop={dropOn === id} style:top="{row.top}px"
-          ondragover={(e) => { if (onsection && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
+        <h3 class="day section" class:sub={row.depth > 0} class:drop={dropOn === id} style:top="{row.top}px"
+          style:padding-left="{row.depth * 22}px"
+          ondragover={(e) => { if (onsection && !row.subsections && isPhotoDrag(e)) { e.preventDefault(); dropOn = id; } }}
           ondragleave={() => dropOn === id && (dropOn = null)}
           ondrop={(e) => dropPhotos(e, id)}>
           {#if ontoggle}
@@ -187,7 +207,9 @@
             <button class="link dayact" onclick={() => ondayaction("select", "", row.start, row.count)}>{t("Select")}</button>
           {/if}
           {#if id && onsection}
-            <button class="link dayact" title={t("Delete section")} onclick={() => onsection("delete", id, { name: row.label })}>×</button>
+            <button class="link dayact" title={t("Add a sub-section")} onclick={() => onsection("add", id, { name: row.label })}>＋</button>
+            <button class="link dayact" title={t("Delete section")}
+              onclick={() => onsection("delete", id, { name: row.label, subsections: row.subsections })}>×</button>
           {/if}
         </h3>
       {:else if row.kind === "header"}
@@ -252,6 +274,7 @@
   .day .count { color: var(--muted); font-weight: 400; font-size: 13px; }
   .section.drop { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 6px; }
   .section .none { color: var(--muted); font-weight: 400; }
+  .section.sub { font-size: 14px; }
   .secname { font-size: 14px; width: 260px; }
   .caret { width: 18px; margin-left: -4px; font-size: 11px; color: var(--muted); }
   .dayact { font-size: 12px; font-weight: 400; margin-left: 6px; visibility: hidden; }

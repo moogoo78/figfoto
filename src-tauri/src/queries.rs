@@ -301,6 +301,15 @@ pub struct Bucket {
     pub section: Option<i64>,
     /// When sorted by section: the section's name (empty for no section).
     pub label: String,
+    /// When sorted by section: how deep the section is nested (0 at the top).
+    pub depth: i64,
+    /// When sorted by section: the section it is in, if any.
+    pub parent: Option<i64>,
+    /// When sorted by section: number of sections directly inside it.
+    pub subsections: i64,
+    /// When sorted by section: photos in it and in all its sub-sections (`count` is only the
+    /// photos directly in it, so none for a section with sub-sections).
+    pub total: i64,
 }
 
 /// Photo counts per day (or per section), in the same order `list_photos` returns them.
@@ -331,8 +340,8 @@ pub fn date_buckets(lib: &Library, f: &Filter, sort: Sort) -> Result<Vec<Bucket>
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// One bucket per section of the album, in order (empty ones too, so they can be managed),
-/// then the photos in no section.
+/// One bucket per section of the album, in `list_sections` order (empty ones too, so they can
+/// be managed), then the photos in no section.
 fn section_buckets(lib: &Library, f: &Filter, album_id: i64) -> Result<Vec<Bucket>> {
     let counts: HashMap<i64, i64> = {
         let (wh, args) = where_clause(f);
@@ -347,12 +356,32 @@ fn section_buckets(lib: &Library, f: &Filter, album_id: i64) -> Result<Vec<Bucke
     };
     let mut out: Vec<Bucket> = list_sections(lib, album_id)?
         .into_iter()
-        .map(|s| Bucket { count: counts.get(&s.id).copied().unwrap_or(0), section: Some(s.id), label: s.name, ..Default::default() })
+        .map(|s| {
+            let count = counts.get(&s.id).copied().unwrap_or(0);
+            Bucket {
+                count,
+                section: Some(s.id),
+                label: s.name,
+                depth: s.depth,
+                parent: s.parent_id,
+                subsections: s.subsections,
+                total: count,
+                ..Default::default()
+            }
+        })
         .collect();
+    // Sub-sections come right after their section, so adding each total to its parent's
+    // from the end up sums whole subtrees.
+    let index: HashMap<i64, usize> = out.iter().enumerate().map(|(i, b)| (b.section.unwrap_or_default(), i)).collect();
+    for i in (0..out.len()).rev() {
+        if let Some(&p) = out[i].parent.and_then(|p| index.get(&p)) {
+            out[p].total += out[i].total;
+        }
+    }
     match counts.get(&0) {
         // An album without sections is just one plain group.
-        Some(&count) if out.is_empty() => out.push(Bucket { count, ..Default::default() }),
-        Some(&count) => out.push(Bucket { count, section: Some(0), ..Default::default() }),
+        Some(&count) if out.is_empty() => out.push(Bucket { count, total: count, ..Default::default() }),
+        Some(&count) => out.push(Bucket { count, total: count, section: Some(0), ..Default::default() }),
         None => {}
     }
     Ok(out)
@@ -408,19 +437,30 @@ pub fn get_photo(lib: &Library, id: i64) -> Result<PhotoDetail> {
         let rows = stmt.query_map([id], |r| Ok(Tag { id: r.get(0)?, name: r.get(1)?, count: r.get(2)? }))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
-    // Album id -> section name (None when the photo is in no section of that album).
-    let in_albums: HashMap<i64, Option<String>> = {
+    let in_albums: Vec<i64> = {
+        let conn = lib.conn();
+        let mut stmt = conn.prepare("SELECT album_id FROM album_photos WHERE photo_id = ?1")?;
+        let rows = stmt.query_map([id], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    // Album id -> section path ("Kyoto › Day 2"), for the albums it is in a section of.
+    let sections: HashMap<i64, String> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
-            "SELECT ap.album_id, s.name FROM album_photos ap
-               LEFT JOIN album_sections s ON s.id = ap.section_id
-             WHERE ap.photo_id = ?1",
+            "WITH RECURSIVE path(album_id, parent_id, label) AS (
+                 SELECT ap.album_id, s.parent_id, s.name FROM album_photos ap
+                   JOIN album_sections s ON s.id = ap.section_id
+                 WHERE ap.photo_id = ?1
+               UNION ALL
+                 SELECT path.album_id, s.parent_id, s.name || ' › ' || path.label FROM path
+                   JOIN album_sections s ON s.id = path.parent_id
+             )
+             SELECT album_id, label FROM path WHERE parent_id IS NULL",
         )?;
         let rows = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
-    let albums = list_albums(lib)?.into_iter().filter(|a| in_albums.contains_key(&a.id)).collect();
-    let sections = in_albums.into_iter().filter_map(|(a, s)| Some((a, s?))).collect();
+    let albums = list_albums(lib)?.into_iter().filter(|a| in_albums.contains(&a.id)).collect();
     Ok(PhotoDetail { photo, tags, albums, sections })
 }
 
@@ -681,32 +721,101 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
 
 // ---- album sections ----
 
-/// A named part of an album, like "Kyoto" in "2019 Japan".
+/// A named part of an album, like "Kyoto" in "2019 Japan", or "Day 2" inside Kyoto.
 #[derive(Debug, Clone, Serialize)]
 pub struct Section {
     pub id: i64,
     pub name: String,
-    /// Photos in the section (not trashed).
+    /// The section it is in, if any.
+    pub parent_id: Option<i64>,
+    /// How deep it is nested (0 at the top).
+    pub depth: i64,
+    /// Number of sections directly inside it; photos only go in sections with none.
+    pub subsections: i64,
+    /// Photos in the section and its sub-sections (not trashed).
     pub count: i64,
 }
 
-/// The album's sections, in order: by date, the one with the earliest photo first (empty ones
-/// last); by topic, by name.
+/// Where a section's photos go when it gets its first sub-section.
+pub const OTHER_SECTION: &str = "Other";
+
+/// The album's sections as a tree, each followed by the ones inside it. Each level is in
+/// order: by date, the one with the earliest photo (in it or below) first, empty ones last;
+/// by topic, by name.
 pub fn list_sections(lib: &Library, album_id: i64) -> Result<Vec<Section>> {
-    let conn = lib.conn();
-    let mut stmt = conn.prepare(
-        "SELECT s.id, s.name, COUNT(p.id), MIN(p.taken_at) AS first
-         FROM album_sections s JOIN albums a ON a.id = s.album_id
-           LEFT JOIN album_photos ap ON ap.section_id = s.id
-           LEFT JOIN photos p ON p.id = ap.photo_id AND p.trashed_at IS NULL
-         WHERE s.album_id = ?1
-         GROUP BY s.id
-         ORDER BY CASE WHEN a.section_kind = 'date' THEN first IS NULL END,
-                  CASE WHEN a.section_kind = 'date' THEN first END,
-                  s.name COLLATE NOCASE, s.id",
-    )?;
-    let rows = stmt.query_map([album_id], |r| Ok(Section { id: r.get(0)?, name: r.get(1)?, count: r.get(2)? }))?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    struct Node {
+        id: i64,
+        name: String,
+        parent: Option<i64>,
+        count: i64,
+        first: Option<String>,
+        children: Vec<usize>,
+    }
+    let (by_date, mut nodes) = {
+        let conn = lib.conn();
+        let kind: Option<String> =
+            conn.query_row("SELECT section_kind FROM albums WHERE id = ?1", [album_id], |r| r.get(0)).optional()?;
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.name, s.parent_id, COUNT(p.id), MIN(p.taken_at)
+             FROM album_sections s
+               LEFT JOIN album_photos ap ON ap.section_id = s.id
+               LEFT JOIN photos p ON p.id = ap.photo_id AND p.trashed_at IS NULL
+             WHERE s.album_id = ?1
+             GROUP BY s.id ORDER BY s.id",
+        )?;
+        let rows = stmt.query_map([album_id], |r| {
+            Ok(Node { id: r.get(0)?, name: r.get(1)?, parent: r.get(2)?, count: r.get(3)?, first: r.get(4)?, children: vec![] })
+        })?;
+        (kind.as_deref() != Some("topic"), rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    };
+    let index: HashMap<i64, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+    let mut roots = Vec::new();
+    for i in 0..nodes.len() {
+        match nodes[i].parent.and_then(|p| index.get(&p)) {
+            Some(&p) => nodes[p].children.push(i),
+            None => roots.push(i),
+        }
+    }
+    // Totals and first photo of each subtree, children before parents.
+    fn sum(nodes: &mut [Node], i: usize) {
+        for c in nodes[i].children.clone() {
+            sum(nodes, c);
+            nodes[i].count += nodes[c].count;
+            if nodes[c].first.is_some() && (nodes[i].first.is_none() || nodes[c].first < nodes[i].first) {
+                nodes[i].first = nodes[c].first.clone();
+            }
+        }
+    }
+    for &r in &roots {
+        sum(&mut nodes, r);
+    }
+    let sort = |list: &mut Vec<usize>, nodes: &[Node]| {
+        list.sort_by_cached_key(|&i| {
+            let n = &nodes[i];
+            let date = if by_date { (n.first.is_none(), n.first.clone()) } else { (false, None) };
+            (date, n.name.to_lowercase(), n.id)
+        })
+    };
+    fn walk(nodes: &[Node], list: &[usize], depth: i64, out: &mut Vec<Section>, sort: &dyn Fn(&mut Vec<usize>, &[Node])) {
+        for &i in list {
+            let n = &nodes[i];
+            out.push(Section {
+                id: n.id,
+                name: n.name.clone(),
+                parent_id: n.parent,
+                depth,
+                subsections: n.children.len() as i64,
+                count: n.count,
+            });
+            let mut children = n.children.clone();
+            sort(&mut children, nodes);
+            walk(nodes, &children, depth + 1, out, sort);
+        }
+    }
+    sort(&mut roots, &nodes);
+    let mut out = Vec::with_capacity(nodes.len());
+    walk(&nodes, &roots, 0, &mut out, &sort);
+    Ok(out)
 }
 
 /// Sets how the album's sections are ordered: "date" or "topic".
@@ -718,25 +827,55 @@ pub fn set_section_kind(lib: &Library, album_id: i64, kind: &str) -> Result<()> 
     Ok(())
 }
 
-/// The album's section named `name` (ignoring case), created if there is none.
-pub fn create_section(lib: &Library, album_id: i64, name: &str) -> Result<i64> {
+/// The section named `name` (ignoring case) inside `parent_id` (at the top of the album with
+/// `None`), created if there is none. A section that holds photos and gets its first
+/// sub-section hands its photos to an "Other" sub-section, so photos stay in sections
+/// without sub-sections.
+pub fn create_section(lib: &Library, album_id: i64, parent_id: Option<i64>, name: &str) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::msg("section name is empty"));
     }
-    let conn = lib.conn();
-    let existing = conn
-        .query_row(
-            "SELECT id FROM album_sections WHERE album_id = ?1 AND name = ?2 COLLATE NOCASE ORDER BY id LIMIT 1",
-            params![album_id, name],
+    let mut conn = lib.conn();
+    let tx = conn.transaction()?;
+    if let Some(p) = parent_id {
+        let owner: Option<i64> = tx.query_row("SELECT album_id FROM album_sections WHERE id = ?1", [p], |r| r.get(0)).optional()?;
+        if owner != Some(album_id) {
+            return Err(AppError::msg("that section is not in this album"));
+        }
+    }
+    let find = |tx: &rusqlite::Transaction, name: &str| -> rusqlite::Result<Option<i64>> {
+        tx.query_row(
+            "SELECT id FROM album_sections WHERE album_id = ?1 AND parent_id IS ?2 AND name = ?3 COLLATE NOCASE
+             ORDER BY id LIMIT 1",
+            params![album_id, parent_id, name],
             |r| r.get(0),
         )
-        .optional()?;
-    if let Some(id) = existing {
+        .optional()
+    };
+    if let Some(id) = find(&tx, name)? {
         return Ok(id);
     }
-    conn.execute("INSERT INTO album_sections (album_id, name, position) VALUES (?1, ?2, 0)", params![album_id, name])?;
-    Ok(conn.last_insert_rowid())
+    let insert = |tx: &rusqlite::Transaction, name: &str| -> rusqlite::Result<i64> {
+        tx.execute(
+            "INSERT INTO album_sections (album_id, parent_id, name, position) VALUES (?1, ?2, ?3, 0)",
+            params![album_id, parent_id, name],
+        )?;
+        Ok(tx.last_insert_rowid())
+    };
+    let id = insert(&tx, name)?;
+    if let Some(p) = parent_id {
+        let holds: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM album_photos WHERE section_id = ?1)", [p], |r| r.get(0))?;
+        if holds {
+            let other = match find(&tx, OTHER_SECTION)? {
+                Some(other) => other,
+                None => insert(&tx, OTHER_SECTION)?,
+            };
+            tx.execute("UPDATE album_photos SET section_id = ?1 WHERE section_id = ?2", [other, p])?;
+        }
+    }
+    tx.commit()?;
+    Ok(id)
 }
 
 pub fn rename_section(lib: &Library, id: i64, name: &str) -> Result<()> {
@@ -748,19 +887,29 @@ pub fn rename_section(lib: &Library, id: i64, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Deletes a section; its photos stay in the album, in no section.
+/// Deletes a section and the ones inside it; their photos stay in the album, in no section.
 pub fn delete_section(lib: &Library, id: i64) -> Result<()> {
     lib.conn().execute("DELETE FROM album_sections WHERE id = ?1", [id])?;
     Ok(())
 }
 
-/// Puts photos of the album into a section, or into none with `None`.
+/// Puts photos of the album into a section (one without sub-sections), or into none with `None`.
 pub fn set_photo_section(lib: &Library, album_id: i64, ids: &[i64], section_id: Option<i64>) -> Result<()> {
     let conn = lib.conn();
     if let Some(s) = section_id {
-        let owner: Option<i64> = conn.query_row("SELECT album_id FROM album_sections WHERE id = ?1", [s], |r| r.get(0)).optional()?;
-        if owner != Some(album_id) {
-            return Err(AppError::msg("that section is not in this album"));
+        let found: Option<(i64, bool)> = conn
+            .query_row(
+                "SELECT album_id, EXISTS (SELECT 1 FROM album_sections c WHERE c.parent_id = s.id)
+                 FROM album_sections s WHERE id = ?1",
+                [s],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        match found {
+            Some((owner, _)) if owner != album_id => return Err(AppError::msg("that section is not in this album")),
+            None => return Err(AppError::msg("that section is not in this album")),
+            Some((_, true)) => return Err(AppError::msg("photos go in a section without sub-sections")),
+            _ => {}
         }
     }
     conn.execute(
@@ -790,7 +939,7 @@ pub fn split_by_day(lib: &Library, album_id: i64) -> Result<usize> {
         }
     }
     for (day, ids) in &days {
-        let section = create_section(lib, album_id, day)?;
+        let section = create_section(lib, album_id, None, day)?;
         set_photo_section(lib, album_id, ids, Some(section))?;
     }
     Ok(days.len())
