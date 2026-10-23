@@ -36,6 +36,17 @@
     </select>
   </label>
   <label>
+    {t("Date from")}
+    <select bind:value={q.dateSource}>
+      <option value="">{t("Any")}</option>
+      <option value="exif">{t("Camera")}</option>
+      <option value="filename">{t("File name")}</option>
+      <option value="folder">{t("Folder name")}</option>
+      <option value="file">{t("File time (may be wrong)")}</option>
+      <option value="manual">{t("Set by hand")}</option>
+    </select>
+  </label>
+  <label>
     {t("Tags")}
     <select
       onchange={(e) => {

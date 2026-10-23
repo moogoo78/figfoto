@@ -1650,3 +1650,91 @@ fn organized_folders_become_categories_albums_and_sections() {
     assert_eq!(album_named(&lib2, "Japan").count, 2);
     assert_eq!(album_named(&lib2, "Japan").role, "category");
 }
+
+/// A PNG without EXIF, modified on 2023-01-09 08:30.
+fn png_without_exif(path: &Path, variant: u32) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    DynamicImage::ImageRgb8(picture(variant, 64, 64)).save_with_format(path, ImageFormat::Png).unwrap();
+    let mtime = Local.from_local_datetime(&NaiveDate::from_ymd_opt(2023, 1, 9).unwrap().and_hms_opt(8, 30, 0).unwrap()).unwrap();
+    std::fs::File::options().write(true).open(path).unwrap().set_modified(mtime.into()).unwrap();
+}
+
+fn photo_named(lib: &Library, name: &str) -> figfoto_lib::queries::Photo {
+    queries::list_photos(lib, &Filter::default(), Sort::TakenAsc, 0, 100).unwrap().into_iter().find(|p| p.orig_name == name).unwrap()
+}
+
+#[test]
+fn dates_without_exif_come_from_file_and_folder_names() {
+    let Env { _tmp, src, lib } = env();
+    png_without_exif(&src.join("Screenshot_20190503-101500.png"), 0);
+    png_without_exif(&src.join("2018-07-01 Trip/beach.png"), 1);
+    png_without_exif(&src.join("misc/scan.png"), 2);
+    write(&src.join("cam.jpg"), &with_exif(jpeg_bytes(&picture(3, 64, 64), 90), "2021:07:15 10:20:30", "Cam"));
+    import_all(&lib, &src);
+
+    let shot = photo_named(&lib, "Screenshot_20190503-101500.png");
+    assert_eq!((shot.taken_at.as_str(), shot.date_source.as_deref()), ("2019-05-03T10:15:00", Some("filename")));
+    assert!(shot.rel_path.starts_with("originals/2019/05/03/"));
+    // A date without a time keeps the file's time of day.
+    let beach = photo_named(&lib, "beach.png");
+    assert_eq!((beach.taken_at.as_str(), beach.date_source.as_deref()), ("2018-07-01T08:30:00", Some("folder")));
+    let scan = photo_named(&lib, "scan.png");
+    assert_eq!((scan.taken_at.as_str(), scan.date_source.as_deref()), ("2023-01-09T08:30:00", Some("file")));
+    assert_eq!(photo_named(&lib, "cam.jpg").date_source.as_deref(), Some("exif"));
+
+    // Guessed dates can be listed.
+    let f = Filter { date_source: Some("file".into()), ..Default::default() };
+    let names: Vec<String> = queries::list_photos(&lib, &f, Sort::TakenAsc, 0, 10).unwrap().into_iter().map(|p| p.orig_name).collect();
+    assert_eq!(names, vec!["scan.png"]);
+}
+
+#[test]
+fn dates_set_by_hand_move_the_files_and_keep_the_order() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src); // 2021-07-15 00:00, 01:00, 02:00
+    let day = NaiveDate::from_ymd_opt(2020, 2, 29).unwrap();
+
+    // A date only: each keeps its time.
+    assert_eq!(figfoto_lib::dates::set_taken(&lib, &ids[..2], day, None).unwrap(), 2);
+    let p0 = queries::get_photo(&lib, ids[0]).unwrap().photo;
+    assert_eq!((p0.taken_at.as_str(), p0.date_source.as_deref()), ("2020-02-29T00:00:00", Some("manual")));
+    assert!(p0.rel_path.starts_with("originals/2020/02/29/"));
+    assert!(lib.root.join(&p0.rel_path).is_file());
+    assert_eq!(queries::get_photo(&lib, ids[1]).unwrap().photo.taken_at, "2020-02-29T01:00:00");
+    assert!(!lib.root.join("originals/2021/07/15").join(&p0.orig_name).exists());
+
+    // With a time: the earliest gets it, the others move by as much.
+    let time = chrono::NaiveTime::from_hms_opt(23, 30, 0);
+    figfoto_lib::dates::set_taken(&lib, &ids[..2], day, time).unwrap();
+    let taken: Vec<String> = ids[..2].iter().map(|&id| queries::get_photo(&lib, id).unwrap().photo.taken_at).collect();
+    assert_eq!(taken, vec!["2020-02-29T23:30:00", "2020-03-01T00:30:00"]);
+    assert!(queries::get_photo(&lib, ids[1]).unwrap().photo.rel_path.starts_with("originals/2020/03/01/"));
+}
+
+#[test]
+fn photos_added_before_date_sources_are_checked_once() {
+    let Env { _tmp, src, lib } = env();
+    png_without_exif(&src.join("IMG_20190503_101500.png"), 0);
+    write(&src.join("cam.jpg"), &with_exif(jpeg_bytes(&picture(3, 64, 64), 90), "2021:07:15 10:20:30", "Cam"));
+    import_all(&lib, &src);
+    // As if added by an older version: filed under its modified time, source unknown.
+    let png = photo_named(&lib, "IMG_20190503_101500.png");
+    std::fs::create_dir_all(lib.root.join("originals/2023/01/09")).unwrap();
+    std::fs::rename(lib.root.join(&png.rel_path), lib.root.join("originals/2023/01/09/IMG_20190503_101500.png")).unwrap();
+    lib.conn()
+        .execute_batch(&format!(
+            "UPDATE photos SET date_source = NULL;
+             UPDATE photos SET taken_at = '2023-01-09T08:30:00', rel_path = 'originals/2023/01/09/IMG_20190503_101500.png' WHERE id = {}",
+            png.id
+        ))
+        .unwrap();
+
+    assert_eq!(figfoto_lib::dates::backfill_sources(&lib).unwrap(), 1);
+    let png = photo_named(&lib, "IMG_20190503_101500.png");
+    assert_eq!((png.taken_at.as_str(), png.date_source.as_deref()), ("2019-05-03T10:15:00", Some("filename")));
+    assert_eq!(png.rel_path, "originals/2019/05/03/IMG_20190503_101500.png");
+    assert!(lib.root.join(&png.rel_path).is_file());
+    assert!(!lib.root.join("originals/2023").exists(), "emptied folders are removed");
+    assert_eq!(photo_named(&lib, "cam.jpg").date_source.as_deref(), Some("exif"));
+    assert_eq!(figfoto_lib::dates::backfill_sources(&lib).unwrap(), 0, "only once");
+}

@@ -114,7 +114,15 @@ Each photo shows whether it came from a **phone** or a **camera** (guessed from 
 album views and the viewer. You can label a source yourself (e.g. LINE, Facebook) per photo, for the
 selection, or for a whole batch in the **Add photos** dialog; filter by it in **Filter → Source**.
 
-The date comes from EXIF `DateTimeOriginal` → `DateTimeDigitized` → `DateTime` → file mtime.
+The date comes from EXIF `DateTimeOriginal` → `DateTimeDigitized` → `DateTime`. For a photo without
+one, the date is read from the file name (`IMG_20190503_101500.jpg`, `IMG-20190503-WA0001.jpg`,
+`Screenshot_2019-05-03-10-15-00.png`). If the name has none, the nearest folder name with a date is
+used (`2019-05-03 Kyoto/`). Only then does the photo take the file's modified time, which is often
+wrong. A date without a time keeps the modified time's time of day. Photo info shows where a guessed
+date came from, and **Filter → Date from** finds them. **Set date** in the selection bar sets the date
+by hand. With only a date, each photo keeps its time; with a time too, the earliest photo gets it and
+the others keep their spacing. The files move to the new date folders. Photos added before this are
+checked once when the library opens.
 Exact duplicates (same BLAKE3 hash) are skipped when adding photos; near-duplicates are found with a
 64-bit perceptual hash in the **Duplicates** view.
 

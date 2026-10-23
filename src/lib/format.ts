@@ -1,4 +1,5 @@
 import { i18n, t } from "./i18n.svelte";
+import type { DateSource } from "./types";
 
 export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -17,6 +18,17 @@ export function fmtDay(day: string): string {
   const d = new Date(`${day}T00:00:00`);
   if (isNaN(d.getTime())) return day;
   return d.toLocaleDateString(i18n.locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Where a photo's date came from, for photo info. */
+export function dateSourceLabel(source: DateSource): string {
+  switch (source) {
+    case "exif": return t("from the camera");
+    case "filename": return t("from the file name");
+    case "folder": return t("from the folder name");
+    case "file": return t("from the file time; may be wrong");
+    case "manual": return t("set by hand");
+  }
 }
 
 /** "240503_" for 2024-05-03: the start of the name of that day's album (240503_Kyoto). */

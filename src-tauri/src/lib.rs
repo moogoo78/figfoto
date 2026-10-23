@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod cloud;
 pub mod commands;
+pub mod dates;
 pub mod db;
 pub mod dupes;
 pub mod error;
@@ -71,6 +72,7 @@ pub fn run() {
             set_source,
             list_lenses,
             set_lens,
+            set_taken_at,
             add_lens,
             remove_lens,
             rename_lens,

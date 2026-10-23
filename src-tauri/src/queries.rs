@@ -49,6 +49,9 @@ pub struct Photo {
     pub settings_note: Option<String>,
     /// The photographer's own record. Private: never shared, exported or published.
     pub private_note: Option<String>,
+    /// Where `taken_at` came from: "exif", "filename", "folder", "file" (modified time) or
+    /// "manual"; none until checked after opening.
+    pub date_source: Option<String>,
     /// "phone", "camera" or "unknown", guessed from EXIF make/model.
     pub device: &'static str,
     /// Absolute paths, filled in from the library root. `display` is what the
@@ -62,7 +65,7 @@ const PHOTO_COLS: &str = "p.id, p.hash, p.rel_path, p.orig_name, p.source_path, 
     p.width, p.height, p.file_size, p.mime, p.camera_make, p.camera_model, COALESCE(p.lens_set, p.lens), p.iso, p.f_number,
     p.exposure, p.focal_len, p.gps_lat, p.gps_lon, p.rating, p.favorite, p.trashed_at, p.mark, p.source,
     p.lens_set IS NOT NULL, p.note, p.settings_note,
-    COALESCE(p.lens, '') != '', p.private_note";
+    COALESCE(p.lens, '') != '', p.private_note, p.date_source";
 
 fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
     let hash: String = r.get(1)?;
@@ -107,6 +110,7 @@ fn photo_from_row(lib: &Library, r: &Row) -> rusqlite::Result<Photo> {
         settings_note: r.get(27)?,
         exif_lens: r.get(28)?,
         private_note: r.get(29)?,
+        date_source: r.get(30)?,
     })
 }
 
@@ -128,6 +132,8 @@ pub struct Filter {
     pub mark: Option<String>,
     /// The user-set source if any, else "phone" / "camera" / "unknown".
     pub origin: Option<String>,
+    /// Where the date came from (see [`Photo::date_source`]).
+    pub date_source: Option<String>,
     pub trashed: bool,
 }
 
@@ -269,6 +275,10 @@ fn where_clause(f: &Filter) -> (String, Vec<Box<dyn ToSql>>) {
     if let Some(o) = f.origin.as_ref().filter(|s| !s.is_empty()) {
         clauses.push(format!("{ORIGIN} = ?"));
         args.push(Box::new(o.clone()));
+    }
+    if let Some(d) = f.date_source.as_ref().filter(|s| !s.is_empty()) {
+        clauses.push("p.date_source = ?".into());
+        args.push(Box::new(d.clone()));
     }
     (clauses.join(" AND "), args)
 }

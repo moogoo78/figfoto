@@ -14,6 +14,7 @@
   import type { AlbumDisplay, AlbumKind, ChildOrder } from "../lib/types";
   import SettingsInput from "../lib/SettingsInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
+  import DateInput from "../lib/DateInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
   import { MARKS, type Mark } from "../lib/types";
   import VirtualGrid from "../lib/VirtualGrid.svelte";
@@ -432,6 +433,7 @@
           !lens ? t("Lens cleared")
           : n === selected.length ? t("Lens set to {lens}", { lens })
           : t("Lens set to {lens} on {n} photo(s); {m} have a lens from the camera", { lens, n, m: selected.length - n }))} />
+        <DateInput onset={(date, time) => store.mutate(() => api.setTakenAt(selected, date, time), (n) => t("Date set on {n} photo(s)", { n }))} />
         {#if newAlbumName != null}
           <input
             class="albumname"

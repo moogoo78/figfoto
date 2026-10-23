@@ -3,7 +3,7 @@ import { api } from "./api";
 import { errorText } from "./format";
 import { t } from "./i18n.svelte";
 import type { FolderPreset } from "./folderPlan";
-import type { Album, Counts, Filter, FolderRole, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, View } from "./types";
+import type { Album, Counts, DateSource, Filter, FolderRole, ImportProgress, ImportRecord, Mark, MarkSlot, SavedLens, Sort, Tag, View } from "./types";
 
 interface Toast {
   id: number;
@@ -17,7 +17,7 @@ class Store {
   view = $state<View>({ kind: "library" });
 
   /** Filter-bar fields; combined with the current view in `filter`. */
-  query = $state({ dateFrom: "", dateTo: "", minRating: 0, camera: "", origin: "", text: "", tagIds: [] as number[] });
+  query = $state({ dateFrom: "", dateTo: "", minRating: 0, camera: "", origin: "", dateSource: "" as DateSource | "", text: "", tagIds: [] as number[] });
   sort = $state<Sort>("takenDesc");
   thumbSize = $state(180);
 
@@ -63,6 +63,7 @@ class Store {
       minRating: q.minRating || undefined,
       camera: q.camera || undefined,
       origin: q.origin || undefined,
+      dateSource: q.dateSource || undefined,
       text: q.text || undefined,
       mark: v.kind === "mark" ? v.mark : undefined,
       tagIds,
@@ -75,13 +76,17 @@ class Store {
 
   get hasQuery(): boolean {
     const q = this.query;
-    return !!(q.dateFrom || q.dateTo || q.minRating || q.camera || q.origin || q.text || q.tagIds.length);
+    return !!(q.dateFrom || q.dateTo || q.minRating || q.camera || q.origin || q.dateSource || q.text || q.tagIds.length);
   }
 
   async init() {
     await api.onImportProgress((p) => this.#onProgress(p));
     await api.onMarkProgress((p) => (this.markProgress = { done: p.done, total: p.total }));
     await api.onBackupProgress((p) => (this.backupProgress = { done: p.done, total: p.total }));
+    await api.onDatesFixed((n) => {
+      this.toast(t("Dated {n} photo(s) from their file or folder names", { n }));
+      this.version++;
+    });
     try {
       const lib = await api.currentLibrary();
       this.root = lib?.root ?? null;
@@ -129,7 +134,7 @@ class Store {
 
   clearQuery() {
     // Mutate in place: components hold a reference to `query`.
-    Object.assign(this.query, { dateFrom: "", dateTo: "", minRating: 0, camera: "", origin: "", text: "", tagIds: [] });
+    Object.assign(this.query, { dateFrom: "", dateTo: "", minRating: 0, camera: "", origin: "", dateSource: "", text: "", tagIds: [] });
   }
 
   async refreshMeta() {

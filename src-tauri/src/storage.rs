@@ -45,6 +45,20 @@ pub fn move_out_of_album_folders(lib: &Library) -> Result<usize> {
     }
 }
 
+/// Moves a photo's file (live or trashed) to the folder for its date, if it isn't there.
+pub fn move_to_date_folder(lib: &Library, id: i64) -> Result<()> {
+    let (rel, name, taken_at, trashed): (String, String, String, bool) = lib.conn().query_row(
+        "SELECT rel_path, orig_name, taken_at, trashed_at IS NOT NULL FROM photos WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    let dir = date_dir(&taken_at);
+    if rel.rsplit_once('/').map(|(d, _)| d) == Some(dir.as_str()) {
+        return Ok(());
+    }
+    relocate(lib, id, &rel, &name, &dir, trashed)
+}
+
 fn relocate(lib: &Library, id: i64, rel: &str, orig_name: &str, dir: &str, trashed: bool) -> Result<()> {
     let base = if trashed { lib.trash_dir() } else { lib.root.clone() };
     let from = base.join(rel);

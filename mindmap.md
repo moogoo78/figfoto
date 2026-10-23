@@ -62,11 +62,15 @@
 
       - EXIF
 
-      - file name (IMG_20210704…)
+      - file name (IMG_20210704…, IMG-…-WA…, Screenshot_…)
 
-      - file mtime
+      - folder name (2019-05-03 Kyoto/)
 
-      - manual fix
+      - file mtime (flagged: Filter → Date from)
+
+      - set by hand (selection bar; with a time the rest keep their spacing); files move to the new date folder
+
+      - older photos checked once on opening
 
    - \*video / live photo
 

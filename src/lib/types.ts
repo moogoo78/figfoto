@@ -36,6 +36,8 @@ export interface Photo {
   settingsNote: string | null;
   /** The photographer's own record; never shared or published. */
   privateNote: string | null;
+  /** Where `takenAt` came from; null until checked after opening. */
+  dateSource: DateSource | null;
   /** Guessed from EXIF make/model. */
   device: "phone" | "camera" | "unknown";
   path: string;
@@ -144,8 +146,13 @@ export interface Filter {
   mark?: string;
   /** The user-set source, else "phone" / "camera" / "unknown". */
   origin?: string;
+  dateSource?: DateSource;
   trashed: boolean;
 }
+
+/** Where a photo's date came from: the camera (EXIF), its file or folder name, the file's
+ * modified time (a guess that may be wrong), or set by hand. */
+export type DateSource = "exif" | "filename" | "folder" | "file" | "manual";
 
 /** "children" (by the albums inside) only applies inside an album (elsewhere it sorts oldest first). */
 export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "children";

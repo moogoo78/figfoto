@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
   import { api, src } from "../lib/api";
-  import { errorText, fmtBytes, fmtDateTime, originLabel } from "../lib/format";
+  import { dateSourceLabel, errorText, fmtBytes, fmtDateTime, originLabel } from "../lib/format";
   import type { PhotoList } from "../lib/photoList.svelte";
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
@@ -100,7 +100,11 @@
       </div>
 
       <dl>
-        <dt>{t("Taken")}</dt><dd>{fmtDateTime(p.takenAt)}</dd>
+        <dt>{t("Taken")}</dt>
+        <dd>
+          {fmtDateTime(p.takenAt)}
+          {#if p.dateSource && p.dateSource !== "exif"}<small class="datesrc" class:guess={p.dateSource === "file"}>{dateSourceLabel(p.dateSource)}</small>{/if}
+        </dd>
         <dt>{t("Size")}</dt><dd>{p.width} × {p.height} · {fmtBytes(p.fileSize)}</dd>
         {#if p.cameraModel}<dt>{t("Camera")}</dt><dd>{[p.cameraMake, p.cameraModel].filter(Boolean).join(" ")}</dd>{/if}
         {#if p.lens}
@@ -189,6 +193,8 @@
   dl { display: grid; grid-template-columns: 76px 1fr; gap: 6px 8px; font-size: 13px; margin: 14px 0 0; }
   dt { color: var(--muted); }
   dd { margin: 0; }
+  .datesrc { display: block; color: var(--muted); font-size: 11px; }
+  .datesrc.guess { color: var(--danger); }
   .path { word-break: break-all; font-size: 12px; color: var(--muted); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .actions { margin-top: 24px; }

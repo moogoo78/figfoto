@@ -18,6 +18,8 @@ use crate::queries::{self, Album, Bucket, Counts, Filter, Photo, PhotoDetail, So
 pub const PROGRESS_EVENT: &str = "import://progress";
 pub const MARK_PROGRESS_EVENT: &str = "marks://progress";
 pub const BACKUP_PROGRESS_EVENT: &str = "backup://progress";
+/// Sent with how many photos got a date from their file or folder name after opening.
+pub const DATES_EVENT: &str = "dates://fixed";
 
 #[derive(Default)]
 pub struct AppState {
@@ -98,6 +100,16 @@ fn activate(app: &AppHandle, root: &Path, create: bool) -> Result<LibraryInfo> {
         Ok(0) => {}
         Ok(n) => eprintln!("created {n} missing preview(s)"),
         Err(e) => eprintln!("preview backfill failed: {e}"),
+    });
+    let lib = app.state::<AppState>().lib()?;
+    let handle = app.clone();
+    std::thread::spawn(move || match crate::dates::backfill_sources(&lib) {
+        Ok(0) => {}
+        Ok(n) => {
+            eprintln!("dated {n} photo(s) from their file or folder names");
+            let _ = handle.emit(DATES_EVENT, n);
+        }
+        Err(e) => eprintln!("checking photo dates failed: {e}"),
     });
     save_config(app, &Config { last_library: Some(root.to_path_buf()) });
     Ok(info)
@@ -440,6 +452,21 @@ pub async fn remove_lens(state: State<'_, AppState>, name: String) -> Result<()>
 #[tauri::command]
 pub async fn rename_lens(state: State<'_, AppState>, old: String, new: String) -> Result<()> {
     queries::rename_lens(&*state.lib()?, &old, &new)
+}
+
+/// Sets when photos were taken: `date` as YYYY-MM-DD, `time` as HH:MM (or HH:MM:SS).
+#[tauri::command]
+pub async fn set_taken_at(state: State<'_, AppState>, ids: Vec<i64>, date: String, time: Option<String>) -> Result<usize> {
+    let date = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|_| AppError::msg("not a date"))?;
+    let time = match time.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => Some(
+            chrono::NaiveTime::parse_from_str(t, "%H:%M:%S")
+                .or_else(|_| chrono::NaiveTime::parse_from_str(t, "%H:%M"))
+                .map_err(|_| AppError::msg("not a time"))?,
+        ),
+        None => None,
+    };
+    crate::dates::set_taken(&*state.lib()?, &ids, date, time)
 }
 
 #[tauri::command]

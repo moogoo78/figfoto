@@ -348,6 +348,11 @@ UPDATE albums SET kind = 'category'
  WHERE EXISTS (SELECT 1 FROM albums c WHERE c.parent_id = albums.id)
    AND NOT EXISTS (SELECT 1 FROM album_photos ap WHERE ap.album_id = albums.id);
 "#,
+    // v25: where each photo's date came from: "exif", "filename", "folder", "file" (modified
+    // time) or "manual". NULL until checked once after opening (dates::backfill_sources).
+    r#"
+ALTER TABLE photos ADD COLUMN date_source TEXT;
+"#,
 ];
 
 /// Migrations (by the version they bring the library to) that rebuild tables. They run with
