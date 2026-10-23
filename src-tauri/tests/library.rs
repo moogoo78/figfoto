@@ -203,7 +203,7 @@ fn tags_albums_ratings_and_filters() {
     assert_eq!(find(Filter { text: Some("p2".into()), ..Default::default() }), ids[2..]);
     assert_eq!(find(Filter { camera: Some("Cam".into()), ..Default::default() }).len(), 3);
 
-    let album = queries::create_album(&lib, "Trip", None).unwrap();
+    let album = queries::create_album(&lib, "Trip", None, "album").unwrap();
     queries::add_to_album(&lib, album, &[ids[2], ids[0]]).unwrap();
     queries::add_to_album(&lib, album, &[ids[0]]).unwrap(); // no double insert
     assert_eq!(find(Filter { album_id: Some(album), ..Default::default() }), vec![ids[0], ids[2]]);
@@ -421,8 +421,8 @@ fn three_photos(lib: &Library, src: &Path) -> Vec<i64> {
 fn albums_never_move_files_and_share_photos() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
-    let trip = queries::create_album(&lib, "Trip: Kyoto/Osaka", None).unwrap();
-    let best = queries::create_album(&lib, "Best", None).unwrap();
+    let trip = queries::create_album(&lib, "Trip: Kyoto/Osaka", None, "album").unwrap();
+    let best = queries::create_album(&lib, "Best", None, "album").unwrap();
 
     // One photo in two albums; files stay in their date folder throughout.
     queries::add_to_album(&lib, trip, &ids[..2]).unwrap();
@@ -505,7 +505,7 @@ fn marks_are_set_filtered_and_run() {
     assert!(!out.join("2021/07/15/p1-1.jpg").exists());
 
     // 2 -> album, 3 -> tag.
-    let album = queries::create_album(&lib, "Picks", None).unwrap();
+    let album = queries::create_album(&lib, "Picks", None, "album").unwrap();
     marks::set_action(&lib, 2, "", Some(ActionKind::Album), &album.to_string()).unwrap();
     marks::set_action(&lib, 3, "", Some(ActionKind::Tag), "keeper").unwrap();
     marks::set_mark(&lib, &ids[1..2], Some("2")).unwrap();
@@ -641,15 +641,15 @@ fn album_named(lib: &Library, name: &str) -> queries::Album {
 fn albums_nest() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
-    let travel = queries::create_album(&lib, "Travel", None).unwrap();
-    let japan = queries::create_album(&lib, "Japan", Some(travel)).unwrap();
-    let kyoto = queries::create_album(&lib, "Kyoto", Some(japan)).unwrap();
+    let travel = queries::create_album(&lib, "Travel", None, "album").unwrap();
+    let japan = queries::create_album(&lib, "Japan", Some(travel), "album").unwrap();
+    let kyoto = queries::create_album(&lib, "Kyoto", Some(japan), "album").unwrap();
     queries::add_to_album(&lib, kyoto, &ids).unwrap();
     queries::add_to_album(&lib, japan, &ids[..1]).unwrap();
 
     // Same name, any case, in the same album is the same album; elsewhere it's another.
-    assert_eq!(queries::find_or_create_album(&lib, " kyoto ", Some(japan)).unwrap(), kyoto);
-    let top_kyoto = queries::find_or_create_album(&lib, "Kyoto", None).unwrap();
+    assert_eq!(queries::find_or_create_album(&lib, " kyoto ", Some(japan), "album").unwrap(), kyoto);
+    let top_kyoto = queries::find_or_create_album(&lib, "Kyoto", None, "album").unwrap();
     assert_ne!(top_kyoto, kyoto);
     queries::delete_album(&lib, top_kyoto).unwrap();
     assert_eq!(queries::find_or_create_album_path(&lib, &["travel".into(), "JAPAN".into()]).unwrap(), Some(japan));
@@ -682,7 +682,7 @@ fn albums_nest() {
     queries::delete_album(&lib, japan).unwrap();
     assert_eq!(album_tree(&lib), vec![("Travel".into(), 0, 0, 2), ("Kyoto".into(), 1, 2, 2)]);
     // An album inside another hands its photos up too, so they stay on that album's page.
-    let day2 = queries::create_album(&lib, "Day 2", Some(kyoto)).unwrap();
+    let day2 = queries::create_album(&lib, "Day 2", Some(kyoto), "album").unwrap();
     queries::move_photos(&lib, kyoto, day2, &ids[1..2]).unwrap();
     assert_eq!(album_named(&lib, "Kyoto").count, 1);
     queries::delete_album(&lib, day2).unwrap();
@@ -695,9 +695,9 @@ fn albums_nest() {
 #[test]
 fn albums_pin_to_shortcuts() {
     let Env { _tmp, lib, .. } = env();
-    let kyoto = queries::create_album(&lib, "Kyoto", None).unwrap();
-    let nara = queries::create_album(&lib, "Nara", None).unwrap();
-    let travel = queries::create_album(&lib, "Travel", None).unwrap();
+    let kyoto = queries::create_album(&lib, "Kyoto", None, "album").unwrap();
+    let nara = queries::create_album(&lib, "Nara", None, "album").unwrap();
+    let travel = queries::create_album(&lib, "Travel", None, "album").unwrap();
     let pinned = || -> Vec<(String, i64)> {
         let mut p: Vec<(String, i64)> = queries::list_albums(&lib).unwrap().into_iter().filter_map(|a| Some((a.name, a.shortcut?))).collect();
         p.sort_by_key(|(_, order)| *order);
@@ -729,12 +729,12 @@ fn albums_show_the_photos_inside_inline() {
     let ids: Vec<i64> = queries::list_photos(&lib, &Filter::default(), Sort::TakenAsc, 0, 10).unwrap().iter().map(|p| p.id).collect();
     assert_eq!(ids.len(), 4);
 
-    let japan = queries::create_album(&lib, "2019 Japan", None).unwrap();
-    let best = queries::create_album(&lib, "Best of", None).unwrap();
+    let japan = queries::create_album(&lib, "2019 Japan", None, "album").unwrap();
+    let best = queries::create_album(&lib, "Best of", None, "album").unwrap();
     queries::add_to_album(&lib, japan, &ids).unwrap();
     queries::add_to_album(&lib, best, &ids).unwrap();
-    let kyoto = queries::create_album(&lib, "Kyoto", Some(japan)).unwrap();
-    let nara = queries::create_album(&lib, "Nara", Some(japan)).unwrap();
+    let kyoto = queries::create_album(&lib, "Kyoto", Some(japan), "album").unwrap();
+    let nara = queries::create_album(&lib, "Nara", Some(japan), "album").unwrap();
     queries::move_photos(&lib, japan, nara, &ids[..2]).unwrap();
     queries::move_photos(&lib, japan, kyoto, &ids[2..3]).unwrap();
     assert_eq!(album_named(&lib, "2019 Japan").count, 1, "moved photos leave the album they were shown in");
@@ -784,14 +784,14 @@ fn albums_show_the_photos_inside_inline() {
 
     // Split by day only takes the album's own photos.
     assert_eq!(queries::split_by_day(&lib, japan).unwrap(), 1);
-    assert_eq!(inside(), vec![("2021-07-16".into(), 1), ("Kyoto".into(), 1), ("Nara".into(), 2)]);
+    assert_eq!(inside(), vec![("210716_2019 Japan".into(), 1), ("Kyoto".into(), 1), ("Nara".into(), 2)]);
     assert_eq!(queries::split_by_day(&lib, japan).unwrap(), 0);
     assert_eq!(album_named(&lib, "2019 Japan").total, 4);
 
     // An empty album inside has no date, so it goes last by date.
     queries::move_photos(&lib, japan, nara, &ids[2..3]).unwrap();
     queries::set_child_order(&lib, japan, "date").unwrap();
-    assert_eq!(inside(), vec![("Nara".into(), 3), ("2021-07-16".into(), 1), ("Kyoto".into(), 0)]);
+    assert_eq!(inside(), vec![("Nara".into(), 3), ("210716_2019 Japan".into(), 1), ("Kyoto".into(), 0)]);
 }
 
 #[test]
@@ -844,6 +844,17 @@ fn categories_and_sections_become_nested_albums() {
     let japan = album_named(&lib, "Japan");
     assert_eq!((japan.display.as_str(), japan.child_order.as_str()), ("inline", "name"));
     assert_eq!(album_named(&lib, "Kyoto").child_order, "name", "albums from sections keep their album's order");
+    // Albums holding only albums became categories; anything inside an album is a section.
+    let roles: Vec<(String, String)> = queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.role)).collect();
+    let role = |name: &str, role: &str| (name.to_string(), role.to_string());
+    assert_eq!(
+        roles,
+        vec![
+            role("Travel", "category"), role("Asia", "category"), role("Japan", "album"),
+            role("Kyoto", "section"), role("Day 2", "section"), role("Nara", "section"),
+            role("Best", "album"),
+        ]
+    );
 
     // Pinned categories are pinned albums, in the same place.
     let mut pinned: Vec<(String, i64)> = queries::list_albums(&lib).unwrap().into_iter().filter_map(|a| Some((a.name, a.shortcut?))).collect();
@@ -875,7 +886,7 @@ fn categories_and_sections_become_nested_albums() {
 fn emptying_trash_hands_files_to_the_system_trash() {
     let Env { _tmp, src, lib } = env();
     let ids = three_photos(&lib, &src);
-    let album = queries::create_album(&lib, "A", None).unwrap();
+    let album = queries::create_album(&lib, "A", None, "album").unwrap();
     queries::add_to_album(&lib, album, &ids[..1]).unwrap();
     queries::trash_photos(&lib, &ids[..2]).unwrap();
 
@@ -1010,7 +1021,7 @@ fn organized_folders_become_albums() {
     write(&src.join("card/old.jpg"), &photo(0, 1));
     import_all(&lib, &src.join("card"));
     // An existing album whose name differs only in case is reused.
-    let kyoto = queries::create_album(&lib, "2019 kyoto", None).unwrap();
+    let kyoto = queries::create_album(&lib, "2019 kyoto", None, "album").unwrap();
 
     let tree = src.join("my-fotos");
     write(&tree.join("2019 Kyoto/a.jpg"), &photo(1, 3));
@@ -1176,11 +1187,11 @@ fn folders_are_scanned_and_placed_by_plan() {
 
 #[test]
 fn plans_saved_before_albums_nested_still_load() {
-    // "section" and "category" folders both became albums inside the album above.
+    // Plans from before albums nested said "category" and "section", which mean those again.
     let old: std::collections::HashMap<String, FolderRole> =
         serde_json::from_str(r#"{"": "parent", "Travel": "category", "Travel/Kyoto": "album", "Travel/Kyoto/Day 2": "section", "x": "skip"}"#).unwrap();
-    assert_eq!(old["Travel"], FolderRole::Album);
-    assert_eq!(old["Travel/Kyoto/Day 2"], FolderRole::Album);
+    assert_eq!(old["Travel"], FolderRole::Category);
+    assert_eq!(old["Travel/Kyoto/Day 2"], FolderRole::Section);
     assert_eq!(old["x"], FolderRole::Skip);
     assert_eq!(serde_json::to_string(&FolderRole::Album).unwrap(), r#""album""#);
 }
@@ -1503,4 +1514,139 @@ fn cloud_backup_copies_through_rclone() {
     backup::set_cloud_target_path(&lib, id, &format!("fakecloud:{}", bucket.join("moved").display())).unwrap();
     assert_eq!(backup::run(&lib, id, &no_cancel, |_, _| {}).unwrap().copied, 1);
     assert!(cloud::set_path(&lib, Some("/nonexistent/rclone")).is_err());
+}
+
+#[test]
+fn categories_hold_albums_and_albums_hold_sections() {
+    let Env { _tmp, src, lib } = env();
+    let ids = three_photos(&lib, &src);
+    let travel = queries::create_album(&lib, "Travel", None, "category").unwrap();
+    let japan = queries::create_album(&lib, "Japan", Some(travel), "category").unwrap();
+    let day = queries::create_album(&lib, "210715_Kyoto", Some(japan), "album").unwrap();
+    let night = queries::create_album(&lib, "Night", Some(day), "album").unwrap();
+    queries::add_to_album(&lib, day, &ids[..2]).unwrap();
+    queries::add_to_album(&lib, night, &ids[2..]).unwrap();
+    assert!(queries::create_album(&lib, "x", None, "bogus").is_err());
+
+    let roles: Vec<(String, String, Option<String>)> =
+        queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.role, a.first_taken)).collect();
+    let first = Some("2021-07-15T00:00:00".to_string());
+    assert_eq!(
+        roles,
+        vec![
+            ("Travel".into(), "category".into(), first.clone()),
+            ("Japan".into(), "category".into(), first.clone()),
+            ("210715_Kyoto".into(), "album".into(), first),
+            ("Night".into(), "section".into(), Some("2021-07-15T02:00:00".into())),
+        ]
+    );
+
+    // A category can't go inside an album or a section, made there or moved there.
+    assert!(queries::create_album(&lib, "Asia", Some(day), "category").is_err());
+    assert!(queries::move_album(&lib, japan, Some(night)).is_err());
+    let asia = queries::create_album(&lib, "Asia", None, "category").unwrap();
+    let holder = queries::create_album(&lib, "Holder", None, "album").unwrap();
+    queries::move_album(&lib, asia, Some(holder)).unwrap_err();
+    // An album holding a category can't go there either, nor become an album.
+    queries::move_album(&lib, holder, Some(travel)).unwrap();
+    assert!(queries::set_album_kind(&lib, travel, "album").is_err());
+    // An album can go into a category, or into another album as a section.
+    queries::move_album(&lib, day, Some(asia)).unwrap();
+    queries::move_album(&lib, holder, Some(day)).unwrap();
+    assert_eq!(album_named(&lib, "Holder").role, "section");
+    // A section can't become a category; an album can.
+    assert!(queries::set_album_kind(&lib, night, "category").is_err());
+    queries::move_album(&lib, holder, None).unwrap();
+    queries::set_album_kind(&lib, holder, "category").unwrap();
+    assert_eq!(album_named(&lib, "Holder").role, "category");
+    assert!(queries::set_album_kind(&lib, holder, "bogus").is_err());
+}
+
+#[test]
+fn day_albums_are_made_on_import() {
+    let Env { _tmp, src, lib } = env();
+    let photo = |i: u32, when: &str| with_exif(jpeg_bytes(&picture(i, 64, 64), 90), when, "Cam");
+    write(&src.join("a.jpg"), &photo(0, "2024:05:03 09:00:00"));
+    write(&src.join("b.jpg"), &photo(1, "2024:05:03 20:00:00"));
+    write(&src.join("c.jpg"), &photo(2, "2024:05:04 08:00:00"));
+    let opts = ImportOptions { day_albums: true, ..Default::default() };
+    let p = import::run(&lib, &src, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!((p.added, p.albums), (3, 2));
+    let row = |name: &str, depth, count, total| (name.to_string(), depth, count, total);
+    assert_eq!(album_tree(&lib), vec![row("240504", 0, 1, 1), row("240503", 0, 2, 2)]);
+
+    // A renamed day album filed into a category is still that day's album.
+    let may3 = album_named(&lib, "240503").id;
+    queries::rename_album(&lib, may3, "240503_Frogs").unwrap();
+    let field = queries::create_album(&lib, "Fieldwork", None, "category").unwrap();
+    queries::move_album(&lib, may3, Some(field)).unwrap();
+    write(&src.join("d.jpg"), &photo(3, "2024:05:03 22:00:00"));
+    import::run(&lib, &src, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(album_named(&lib, "240503_Frogs").count, 3);
+    assert_eq!(album_tree(&lib).len(), 3, "no new albums");
+
+    // A photo already in an album isn't put in a day album again.
+    queries::remove_from_album(&lib, may3, &[queries::list_photos(&lib, &Filter::default(), Sort::TakenAsc, 0, 1).unwrap()[0].id], false).unwrap();
+    let pick = queries::create_album(&lib, "Picks", None, "album").unwrap();
+    let a = queries::list_photos(&lib, &Filter::default(), Sort::TakenAsc, 0, 1).unwrap()[0].id;
+    queries::add_to_album(&lib, pick, &[a]).unwrap();
+    import::run(&lib, &src, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(album_named(&lib, "240503_Frogs").count, 2);
+}
+
+#[test]
+fn organized_folders_become_categories_albums_and_sections() {
+    let Env { _tmp, src, lib } = env();
+    let photo = |i: u32, day: u32| with_exif(jpeg_bytes(&picture(i, 64, 64), 90), &format!("2019:05:{day:02} 10:00:00"), "Cam");
+    let tree = src.join("Travel");
+    write(&tree.join("Japan/a.jpg"), &photo(0, 3));
+    write(&tree.join("Japan/b.jpg"), &photo(1, 4));
+    write(&tree.join("Japan/D5/c.jpg"), &photo(2, 5));
+    write(&tree.join("Japan/D5/Night/d.jpg"), &photo(3, 5));
+    write(&tree.join("Japan/D5/Night/raw/e.jpg"), &photo(4, 5));
+    write(&tree.join("Japan/Loose/Extra/f.jpg"), &photo(5, 6));
+    let role = |path: &str, role: FolderRole| (path.to_string(), role);
+    let plan: std::collections::HashMap<String, FolderRole> = [
+        role("", FolderRole::Category),
+        role("Japan", FolderRole::Category),
+        role("Japan/D5", FolderRole::Album),
+        role("Japan/D5/Night", FolderRole::Section),
+        role("Japan/D5/Night/raw", FolderRole::Parent),
+        // A section with no album above is an album.
+        role("Japan/Loose", FolderRole::Parent),
+        role("Japan/Loose/Extra", FolderRole::Section),
+    ]
+    .into();
+    let opts = ImportOptions { folder_albums: true, plan: Some(&plan), day_albums: true, ..Default::default() };
+    let p = import::run(&lib, &tree, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(p.added, 6);
+
+    // Japan's own photos go into an album per day inside it.
+    let rows: Vec<(String, i64, String, i64)> =
+        queries::list_albums(&lib).unwrap().into_iter().map(|a| (a.name, a.depth, a.role, a.count)).collect();
+    let row = |name: &str, depth, role: &str, count| (name.to_string(), depth, role.to_string(), count);
+    assert_eq!(
+        rows,
+        vec![
+            row("Travel", 0, "category", 0),
+            row("Japan", 1, "category", 0),
+            row("190503_Japan", 2, "album", 1),
+            row("190504_Japan", 2, "album", 1),
+            row("D5", 2, "album", 1),
+            row("Night", 3, "section", 2),
+            row("Extra", 2, "album", 1),
+        ]
+    );
+
+    // Adding again changes nothing.
+    import::run(&lib, &tree, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(album_tree(&lib).len(), 7);
+    assert_eq!(album_named(&lib, "190503_Japan").count, 1);
+
+    // Without day albums, a category keeps its own photos.
+    let Env { _tmp: _t2, src: _, lib: lib2 } = env();
+    let opts = ImportOptions { day_albums: false, ..opts };
+    import::run(&lib2, &tree, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(album_named(&lib2, "Japan").count, 2);
+    assert_eq!(album_named(&lib2, "Japan").role, "category");
 }

@@ -440,6 +440,13 @@ pub struct Album {
     pub display: String,
     /// When pinned to the sidebar: its place among the shortcuts (lower first).
     pub shortcut: Option<i64>,
+    /// "category" (groups albums) or "album" (photos of a day), as stored.
+    pub kind: String,
+    /// What it is where it sits: "category", "album", or "section" for anything inside an album.
+    pub role: String,
+    /// When its first and last photos (its own and inside it) were taken.
+    pub first_taken: Option<String>,
+    pub last_taken: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -569,7 +576,7 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "SELECT a.id, a.name, a.created_at, a.parent_id, a.child_order, a.display,
-                (SELECT id FROM shortcuts WHERE album_id = a.id),
+                (SELECT id FROM shortcuts WHERE album_id = a.id), a.kind,
                 COALESCE(
                   (SELECT hash FROM photos WHERE id = a.cover_photo_id AND trashed_at IS NULL),
                   (SELECT p.hash FROM album_photos ap JOIN photos p ON p.id = ap.photo_id
@@ -593,8 +600,12 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
                     child_order: r.get(4)?,
                     display: r.get(5)?,
                     shortcut: r.get(6)?,
+                    kind: r.get(7)?,
+                    role: String::new(),
+                    first_taken: None,
+                    last_taken: None,
                 },
-                own_cover: r.get::<_, Option<String>>(7)?.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
+                own_cover: r.get::<_, Option<String>>(8)?.map(|h| lib.thumb_path(&h).to_string_lossy().into_owned()),
                 created_at,
                 children: Vec::new(),
                 photos: Default::default(),
@@ -669,22 +680,26 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
             }),
         }
     };
-    fn walk(rows: &mut [Row], list: &[usize], depth: i64, out: &mut Vec<usize>, order: &dyn Fn(&mut Vec<usize>, &[Row], &str)) {
+    // `in_album`: whether the list is inside an album, which makes each of them a section.
+    fn walk(rows: &mut [Row], list: &[usize], depth: i64, in_album: bool, out: &mut Vec<usize>, order: &dyn Fn(&mut Vec<usize>, &[Row], &str)) {
         for &i in list {
             if out.contains(&i) {
                 continue;
             }
-            rows[i].album.depth = depth;
+            let album = &mut rows[i].album;
+            album.depth = depth;
+            album.role = if in_album { "section".into() } else { album.kind.clone() };
+            let inside_album = in_album || album.kind == "album";
             out.push(i);
             let mut children = rows[i].children.clone();
             let how = rows[i].album.child_order.clone();
             order(&mut children, rows, &how);
-            walk(rows, &children, depth + 1, out, order);
+            walk(rows, &children, depth + 1, inside_album, out, order);
         }
     }
     order(&mut roots, &rows, "newest");
     let mut sequence = Vec::with_capacity(rows.len());
-    walk(&mut rows, &roots, 0, &mut sequence, &order);
+    walk(&mut rows, &roots, 0, false, &mut sequence, &order);
     // Covers: an album without photos of its own takes the first cover found inside it.
     for &i in sequence.iter().rev() {
         let inside = rows[i].children.clone();
@@ -693,10 +708,13 @@ pub fn list_albums(lib: &Library) -> Result<Vec<Album>> {
         let row = &rows[i];
         let cover = row.own_cover.clone().or_else(|| ordered.first().and_then(|&j| rows[j].album.cover.clone()));
         let (total, children) = (row.photos.len() as i64, row.children.len() as i64);
+        let (first, last) = (row.first.clone(), row.last.clone());
         let album = &mut rows[i].album;
         album.cover = cover;
         album.total = total;
         album.children = children;
+        album.first_taken = first;
+        album.last_taken = last;
     }
     Ok(sequence.into_iter().map(|i| rows[i].album.clone()).collect())
 }
@@ -744,20 +762,115 @@ pub fn set_shortcut(lib: &Library, album_id: i64, pinned: bool) -> Result<()> {
     Ok(())
 }
 
-/// A new album inside `parent` (at the top level with `None`).
-pub fn create_album(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
+/// A new album of `kind` ("category" or "album") inside `parent` (at the top level with `None`).
+pub fn create_album(lib: &Library, name: &str, parent: Option<i64>, kind: &str) -> Result<i64> {
     let name = name.trim();
     if name.is_empty() {
         return Err(AppError::msg("album name is empty"));
     }
+    check_kind(kind)?;
     let conn = lib.conn();
-    conn.execute("INSERT INTO albums (name, created_at, parent_id) VALUES (?1, ?2, ?3)", params![name, now(), parent])?;
+    if kind == "category" && parent.is_some_and(|p| in_an_album(&conn, p).unwrap_or(false)) {
+        return Err(AppError::msg("a category can't go inside an album"));
+    }
+    conn.execute(
+        "INSERT INTO albums (name, created_at, parent_id, kind) VALUES (?1, ?2, ?3, ?4)",
+        params![name, now(), parent, kind],
+    )?;
     Ok(conn.last_insert_rowid())
 }
 
+fn check_kind(kind: &str) -> Result<()> {
+    match kind {
+        "category" | "album" => Ok(()),
+        _ => Err(AppError::msg("unknown album kind")),
+    }
+}
+
+/// Whether `id` is an album or a section: it, or an album it is inside, is of kind "album".
+fn in_an_album(conn: &Connection, id: i64) -> Result<bool> {
+    Ok(conn.query_row(
+        "WITH RECURSIVE up(id, depth) AS (SELECT ?1, 0 UNION SELECT a.parent_id, up.depth + 1 FROM albums a JOIN up ON a.id = up.id
+             WHERE a.parent_id IS NOT NULL AND up.depth < 100)
+         SELECT EXISTS (SELECT 1 FROM albums a JOIN up ON a.id = up.id WHERE a.kind = 'album')",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Whether `id` is inside an album (or a section of one).
+fn is_section(conn: &Connection, id: i64) -> Result<bool> {
+    let parent: Option<i64> = conn.query_row("SELECT parent_id FROM albums WHERE id = ?1", [id], |r| r.get(0))?;
+    match parent {
+        Some(p) => in_an_album(conn, p),
+        None => Ok(false),
+    }
+}
+
+/// Makes an album a category or an album. A category can't be inside an album, nor can an
+/// album that holds categories become one.
+pub fn set_album_kind(lib: &Library, id: i64, kind: &str) -> Result<()> {
+    check_kind(kind)?;
+    let conn = lib.conn();
+    if kind == "category" && is_section(&conn, id)? {
+        return Err(AppError::msg("a section can't become a category"));
+    }
+    if kind == "album" {
+        let holds_category: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM albums WHERE parent_id = ?1 AND kind = 'category')",
+            [id],
+            |r| r.get(0),
+        )?;
+        if holds_category {
+            return Err(AppError::msg("an album with categories inside can't become an album"));
+        }
+    }
+    conn.execute("UPDATE albums SET kind = ?1 WHERE id = ?2", params![kind, id])?;
+    Ok(())
+}
+
+/// "240503" for a `taken_at` of 2024-05-03…, the start of a day album's name.
+pub fn day_prefix(taken_at: &str) -> Option<String> {
+    let d = taken_at.get(..10)?;
+    let ok = d.as_bytes().iter().enumerate().all(|(i, b)| if i == 4 || i == 7 { *b == b'-' } else { b.is_ascii_digit() });
+    ok.then(|| format!("{}{}{}", &d[2..4], &d[5..7], &d[8..10]))
+}
+
+/// The album for the day `prefix` ("240503"): the first album named `prefix` or `prefix_…`
+/// inside `parent`, or with `None`, at the top level or in a category. Created as `prefix` or
+/// `prefix_topic` if there is none.
+pub fn day_album(lib: &Library, prefix: &str, parent: Option<i64>, topic: Option<&str>) -> Result<i64> {
+    let place = match parent {
+        Some(_) => "a.parent_id = ?2",
+        None => "(?2 IS NULL AND (a.parent_id IS NULL
+                  OR EXISTS (SELECT 1 FROM albums up WHERE up.id = a.parent_id AND up.kind = 'category')))",
+    };
+    let existing = lib
+        .conn()
+        .query_row(
+            &format!(
+                "SELECT a.id FROM albums a WHERE a.kind = 'album' AND {place}
+                   AND (a.name = ?1 OR substr(a.name, 1, 7) = ?1 || '_') ORDER BY a.id LIMIT 1"
+            ),
+            params![prefix, parent],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match existing {
+        Some(id) => Ok(id),
+        None => {
+            let name = match topic.map(str::trim).filter(|t| !t.is_empty()) {
+                Some(t) => format!("{prefix}_{t}"),
+                None => prefix.to_string(),
+            };
+            create_album(lib, &name, parent, "album")
+        }
+    }
+}
+
 /// The album named `name` (ignoring case) inside `parent` (at the top level with `None`),
-/// created if there is none.
-pub fn find_or_create_album(lib: &Library, name: &str, parent: Option<i64>) -> Result<i64> {
+/// created of `kind` if there is none.
+pub fn find_or_create_album(lib: &Library, name: &str, parent: Option<i64>, kind: &str) -> Result<i64> {
     let existing = lib
         .conn()
         .query_row(
@@ -768,7 +881,7 @@ pub fn find_or_create_album(lib: &Library, name: &str, parent: Option<i64>) -> R
         .optional()?;
     match existing {
         Some(id) => Ok(id),
-        None => create_album(lib, name, parent),
+        None => create_album(lib, name, parent, kind),
     }
 }
 
@@ -776,7 +889,7 @@ pub fn find_or_create_album(lib: &Library, name: &str, parent: Option<i64>) -> R
 pub fn find_or_create_album_path(lib: &Library, path: &[String]) -> Result<Option<i64>> {
     let mut parent = None;
     for name in path {
-        parent = Some(find_or_create_album(lib, name, parent)?);
+        parent = Some(find_or_create_album(lib, name, parent, "album")?);
     }
     Ok(parent)
 }
@@ -791,11 +904,23 @@ pub fn rename_album(lib: &Library, id: i64, name: &str) -> Result<()> {
 }
 
 /// Moves an album inside another, or to the top level with `None`. An album can't go inside
-/// itself or one of the albums inside it.
+/// itself or one of the albums inside it, and a category (or an album holding one) can't go
+/// inside an album.
 pub fn move_album(lib: &Library, id: i64, parent: Option<i64>) -> Result<()> {
     let conn = lib.conn();
-    if parent.is_some_and(|p| album_and_inside(&conn, id).is_ok_and(|ids| ids.contains(&p))) {
-        return Err(AppError::msg("an album can't go inside itself"));
+    if let Some(p) = parent {
+        let inside = album_and_inside(&conn, id)?;
+        if inside.contains(&p) {
+            return Err(AppError::msg("an album can't go inside itself"));
+        }
+        let has_category: bool = conn.query_row(
+            &format!("SELECT EXISTS (SELECT 1 FROM albums WHERE kind = 'category' AND id IN ({}))", id_list(&inside)),
+            [],
+            |r| r.get(0),
+        )?;
+        if has_category && in_an_album(&conn, p)? {
+            return Err(AppError::msg("a category can't go inside an album"));
+        }
     }
     conn.execute("UPDATE albums SET parent_id = ?1 WHERE id = ?2", params![parent, id])?;
     Ok(())
@@ -880,7 +1005,8 @@ pub fn set_album_cover(lib: &Library, album_id: i64, photo_id: i64) -> Result<()
 }
 
 /// Moves the album's own photos (not those in albums inside it) into one album inside it per
-/// day taken (`YYYY-MM-DD`, reusing an album of that name). Returns how many days there were.
+/// day taken (`YYMMDD_<its name>`, reusing one for that day), and makes it a category. Returns
+/// how many days there were.
 pub fn split_by_day(lib: &Library, album_id: i64) -> Result<usize> {
     let mut days: Vec<(String, Vec<i64>)> = Vec::new();
     {
@@ -898,8 +1024,15 @@ pub fn split_by_day(lib: &Library, album_id: i64) -> Result<usize> {
             }
         }
     }
+    let name: String = lib.conn().query_row("SELECT name FROM albums WHERE id = ?1", [album_id], |r| r.get(0))?;
+    // A section stays one; its days become sections of it.
+    let section = is_section(&lib.conn(), album_id)?;
+    if !section {
+        set_album_kind(lib, album_id, "category")?;
+    }
     for (day, ids) in &days {
-        let inside = find_or_create_album(lib, day, Some(album_id))?;
+        let Some(prefix) = day_prefix(day) else { continue };
+        let inside = day_album(lib, &prefix, Some(album_id), Some(&name))?;
         remove_from_album(lib, album_id, ids, false)?;
         add_to_album(lib, inside, ids)?;
     }

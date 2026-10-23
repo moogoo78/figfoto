@@ -46,6 +46,7 @@ pub fn run() {
             list_cameras,
             list_albums,
             create_album,
+            set_album_kind,
             rename_album,
             delete_album,
             move_album,

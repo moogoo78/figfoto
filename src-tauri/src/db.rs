@@ -339,6 +339,15 @@ ALTER TABLE shortcuts_new RENAME TO shortcuts;
 CREATE INDEX idx_albums_parent ON albums(parent_id);
 CREATE INDEX idx_album_photos_photo ON album_photos(photo_id);
 "#,
+    // v24: an album is a category (it groups albums) or an album (photos of a day, named
+    // YYMMDD_topic); anything inside an album is a section of it. Albums holding only albums
+    // become categories.
+    r#"
+ALTER TABLE albums ADD COLUMN kind TEXT NOT NULL DEFAULT 'album';
+UPDATE albums SET kind = 'category'
+ WHERE EXISTS (SELECT 1 FROM albums c WHERE c.parent_id = albums.id)
+   AND NOT EXISTS (SELECT 1 FROM album_photos ap WHERE ap.album_id = albums.id);
+"#,
 ];
 
 /// Migrations (by the version they bring the library to) that rebuild tables. They run with

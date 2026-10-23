@@ -43,7 +43,7 @@ pub struct ImportProgress {
     pub scanning: bool,
     pub finished: bool,
     pub cancelled: bool,
-    /// Albums photos were added to (organized-folder imports).
+    /// Albums photos were added to.
     pub albums: usize,
     pub errors: Vec<ImportFailure>,
 }
@@ -68,16 +68,23 @@ pub struct ImportOptions<'a> {
     pub plan: Option<&'a HashMap<String, FolderRole>>,
     /// Import photos even if they were deleted from the library before.
     pub include_deleted: bool,
+    /// One album per day: photos going to no album land in a `YYMMDD` album for their day,
+    /// and a folder album spanning several days becomes a category of `YYMMDD_<folder>` albums.
+    pub day_albums: bool,
 }
 
 /// What a folder becomes when adding organized folders with a plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FolderRole {
-    /// An album named after the folder, inside the album of the folder above (if any).
-    /// Plans saved before albums nested said "section" or "category" for the same thing.
-    #[serde(alias = "section", alias = "category")]
+    /// A category named after the folder, inside the category of the folder above (if any).
+    /// Its own photos go into an album per day inside it with day albums, else into it.
+    Category,
+    /// An album named after the folder, inside the category of the folder above (if any).
     Album,
+    /// A section named after the folder, inside the album (or section) of the folder above.
+    /// Without an album above, it is an album.
+    Section,
     /// Its photos go where the folder above's go.
     Parent,
     /// Not added, nor anything inside it.
@@ -138,16 +145,18 @@ enum Place {
     Skip,
     /// Added, but to no album.
     Loose,
-    /// Into the album at this path (names from the top down).
-    In(Vec<String>),
+    /// Into the album at this path (names and kinds, "category" or "album", from the top down).
+    In(Vec<(String, &'static str)>),
 }
 
-/// Follows `plan` from `root` down to `dir`: each album nests in the album above, a skipped
-/// folder skips everything inside it.
+/// Follows `plan` from `root` down to `dir`: each category, album or section nests in the one
+/// above, a skipped folder skips everything inside it. Anything inside an album is a section
+/// of it; a section with no album above is an album.
 fn place(root: &Path, dir: &Path, plan: &HashMap<String, FolderRole>) -> Place {
     let Ok(rel) = dir.strip_prefix(root) else { return Place::Loose };
     let names: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
     let mut albums = Vec::new();
+    let mut in_album = false;
     for depth in 0..=names.len() {
         // A folder without a name (the root of a drive) can't name an album.
         let name = match depth {
@@ -156,25 +165,33 @@ fn place(root: &Path, dir: &Path, plan: &HashMap<String, FolderRole>) -> Place {
         };
         match (plan.get(&names[..depth].join("/")).copied().unwrap_or(FolderRole::Parent), name) {
             (FolderRole::Skip, _) => return Place::Skip,
-            (FolderRole::Album, Some(name)) => albums.push(name),
+            (FolderRole::Category, Some(name)) if !in_album => albums.push((name, "category")),
+            (FolderRole::Category | FolderRole::Album | FolderRole::Section, Some(name)) => {
+                albums.push((name, "album"));
+                in_album = true;
+            }
             _ => {}
         }
     }
     if albums.is_empty() { Place::Loose } else { Place::In(albums) }
 }
 
-/// The album at `path`, each one created if missing. An album that gets its first album
-/// inside this way orders them by name, as folder names aren't dates.
-fn album_at(lib: &Library, path: &[String]) -> Result<i64> {
+/// The album at `path`, each one created if missing (an existing one takes the kind asked
+/// for when it can). An album that gets its first album inside this way orders them by name,
+/// as folder names aren't dates.
+fn album_at(lib: &Library, path: &[(String, &str)]) -> Result<i64> {
     let mut parent: Option<i64> = None;
-    for name in path {
+    for (name, kind) in path {
         if let Some(p) = parent {
             let empty: bool = lib.conn().query_row("SELECT NOT EXISTS (SELECT 1 FROM albums WHERE parent_id = ?1)", [p], |r| r.get(0))?;
             if empty {
                 queries::set_child_order(lib, p, "name")?;
             }
         }
-        parent = Some(queries::find_or_create_album(lib, name, parent)?);
+        let id = queries::find_or_create_album(lib, name, parent, kind)?;
+        // A category the user turned into an album stays one if it holds categories.
+        let _ = queries::set_album_kind(lib, id, kind);
+        parent = Some(id);
     }
     parent.ok_or_else(|| AppError::msg("no album to add to"))
 }
@@ -299,6 +316,8 @@ pub fn run(
     };
     // Photos (by hash) that end up in each album and section, added once the copying is done.
     let album_hashes = Mutex::new(BTreeMap::<i64, Vec<String>>::new());
+    // Photos going to no album, for day albums.
+    let loose_hashes = Mutex::new(Vec::<String>::new());
     let progress = Mutex::new(ImportProgress { total: files.len(), scanning: false, ..scan });
     // Set when a problem makes every remaining file fail too (disk full, source gone).
     let stop = AtomicBool::new(false);
@@ -312,8 +331,12 @@ pub fn run(
         }
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| import_one(lib, import_id, source, opts.include_deleted, src, path, &claimed)))
             .unwrap_or_else(|panic| Err(AppError::msg(format!("crashed while adding photos: {}", panic_message(&panic)))));
-        if let (Ok((Outcome::Added | Outcome::Duplicate, hash)), Some(album)) = (&result, path.parent().and_then(|d| album_of.get(d))) {
-            album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone());
+        if let Ok((Outcome::Added | Outcome::Duplicate, hash)) = &result {
+            match path.parent().and_then(|d| album_of.get(d)) {
+                Some(album) => album_hashes.lock().unwrap().entry(*album).or_default().push(hash.clone()),
+                None if opts.day_albums => loose_hashes.lock().unwrap().push(hash.clone()),
+                None => {}
+            }
         }
         let fatal = result.as_ref().err().and_then(|e| fatal_reason(e, src));
         let mut p = progress.lock().unwrap();
@@ -341,12 +364,34 @@ pub fn run(
 
     let mut p = progress.into_inner().unwrap();
     let mut albums_done = HashSet::new();
+    let fail = |p: &mut ImportProgress, e: AppError| {
+        p.failed += 1;
+        p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
+    };
+    let mut targets: Vec<(i64, Vec<String>)> = Vec::new();
     for (album, hashes) in album_hashes.into_inner().unwrap() {
-        if let Err(e) = add_by_hash(lib, album, &hashes) {
-            p.failed += 1;
-            p.errors.push(ImportFailure { path: src.to_string_lossy().into_owned(), error: format!("adding to album: {e}") });
-        } else {
-            albums_done.insert(album);
+        if !opts.day_albums {
+            targets.push((album, hashes));
+            continue;
+        }
+        match category_targets(lib, album, hashes) {
+            Ok(t) => targets.extend(t),
+            Err(e) => fail(&mut p, e),
+        }
+    }
+    let loose = loose_hashes.into_inner().unwrap();
+    if !loose.is_empty() {
+        match loose_day_targets(lib, &loose) {
+            Ok(t) => targets.extend(t),
+            Err(e) => fail(&mut p, e),
+        }
+    }
+    for (album, hashes) in targets {
+        match add_by_hash(lib, album, &hashes) {
+            Ok(()) => {
+                albums_done.insert(album);
+            }
+            Err(e) => fail(&mut p, e),
         }
     }
     p.albums = albums_done.len();
@@ -457,10 +502,50 @@ fn folder_album_ids(lib: &Library, files: &[PathBuf]) -> Result<HashMap<PathBuf,
         }
         // A folder without a name (the root of a drive) can't name an album.
         if let Some(name) = dir.file_name() {
-            out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy(), None)?);
+            out.insert(dir.to_path_buf(), queries::find_or_create_album(lib, &name.to_string_lossy(), None, "album")?);
         }
     }
     Ok(out)
+}
+
+/// The photos with these hashes, grouped by the `YYMMDD` day they were taken. `unplaced`
+/// leaves out photos already in an album.
+fn by_day(lib: &Library, hashes: &[String], unplaced: bool) -> Result<BTreeMap<String, Vec<String>>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let conn = lib.conn();
+    let filter = if unplaced { "AND NOT EXISTS (SELECT 1 FROM album_photos ap WHERE ap.photo_id = photos.id)" } else { "" };
+    // Chunked to stay under SQLite's limit on query parameters.
+    for chunk in hashes.chunks(5000) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        let mut stmt = conn.prepare(&format!("SELECT taken_at, hash FROM photos WHERE hash IN ({marks}) {filter}"))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (taken, hash) = row?;
+            if let Some(day) = queries::day_prefix(&taken) {
+                out.entry(day).or_default().push(hash);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Where the photos of a folder go with day albums: into its album, or for a category into
+/// a `YYMMDD_<its name>` album per day inside it.
+fn category_targets(lib: &Library, album: i64, hashes: Vec<String>) -> Result<Vec<(i64, Vec<String>)>> {
+    let (name, kind): (String, String) =
+        lib.conn().query_row("SELECT name, kind FROM albums WHERE id = ?1", [album], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    if kind != "category" {
+        return Ok(vec![(album, hashes)]);
+    }
+    by_day(lib, &hashes, false)?
+        .into_iter()
+        .map(|(day, hashes)| Ok((queries::day_album(lib, &day, Some(album), Some(&name))?, hashes)))
+        .collect()
+}
+
+/// Day albums for photos going to no album; photos already in one are left alone.
+fn loose_day_targets(lib: &Library, hashes: &[String]) -> Result<Vec<(i64, Vec<String>)>> {
+    by_day(lib, hashes, true)?.into_iter().map(|(day, hashes)| Ok((queries::day_album(lib, &day, None, None)?, hashes))).collect()
 }
 
 /// Adds the photos with these hashes to `album`, in date order. A photo already somewhere in

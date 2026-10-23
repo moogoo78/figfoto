@@ -138,6 +138,7 @@ pub async fn start_import(
     folder_albums: bool,
     plan: Option<HashMap<String, FolderRole>>,
     include_deleted: bool,
+    day_albums: Option<bool>,
 ) -> Result<()> {
     let lib = state.lib()?;
     if state.importing.swap(true, Ordering::SeqCst) {
@@ -158,7 +159,13 @@ pub async fn start_import(
         let emit = |p: &ImportProgress| {
             let _ = app.emit(PROGRESS_EVENT, p);
         };
-        let opts = import::ImportOptions { source: source.as_deref(), folder_albums, plan: plan.as_ref(), include_deleted };
+        let opts = import::ImportOptions {
+            source: source.as_deref(),
+            folder_albums,
+            plan: plan.as_ref(),
+            include_deleted,
+            day_albums: day_albums.unwrap_or(true),
+        };
         let run = || import::run(&lib, Path::new(&src), &opts, &cancel, emit);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
             .unwrap_or_else(|_| Err(AppError::msg("adding photos crashed")));
@@ -281,8 +288,13 @@ pub async fn list_albums(state: State<'_, AppState>) -> Result<Vec<Album>> {
 }
 
 #[tauri::command]
-pub async fn create_album(state: State<'_, AppState>, name: String, parent_id: Option<i64>) -> Result<i64> {
-    queries::create_album(&*state.lib()?, &name, parent_id)
+pub async fn create_album(state: State<'_, AppState>, name: String, parent_id: Option<i64>, kind: Option<String>) -> Result<i64> {
+    queries::create_album(&*state.lib()?, &name, parent_id, kind.as_deref().unwrap_or("album"))
+}
+
+#[tauri::command]
+pub async fn set_album_kind(state: State<'_, AppState>, id: i64, kind: String) -> Result<()> {
+    queries::set_album_kind(&*state.lib()?, id, &kind)
 }
 
 #[tauri::command]
