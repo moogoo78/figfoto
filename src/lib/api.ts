@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Album, BackupResult, BackupTarget, Bucket, Counts, Filter, FolderInfo, FolderRole, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Sort, Tag, ChildOrder, AlbumDisplay, VerifyResult,
+  Album, AlbumKind, BackupResult, BackupTarget, Bucket, Counts, Filter, FolderInfo, FolderRole, ImportProgress, ImportRecord, Mark, MarkActionKind, MarkSlot, Photo, PhotoDetail, RcloneStatus, RunResult, SavedLens, Sort, Tag, ChildOrder, AlbumDisplay, VerifyResult,
 } from "./types";
 
 export const src = (path: string) => convertFileSrc(path);
@@ -11,8 +11,15 @@ export const api = {
   currentLibrary: () => invoke<{ root: string } | null>("current_library"),
 
   /** `plan` (organized folders): what each folder becomes, keyed by its path inside `src`. */
-  startImport: (src: string, source: string, folderAlbums: boolean, plan: Record<string, FolderRole> | null, includeDeleted: boolean) =>
-    invoke<void>("start_import", { src, source: source || null, folderAlbums, plan, includeDeleted }),
+  /** `dayAlbums`: photos going to no album land in a YYMMDD album per day; folder albums spanning days become categories of them. */
+  startImport: (
+    src: string,
+    source: string,
+    folderAlbums: boolean,
+    plan: Record<string, FolderRole> | null,
+    includeDeleted: boolean,
+    dayAlbums: boolean,
+  ) => invoke<void>("start_import", { src, source: source || null, folderAlbums, plan, includeDeleted, dayAlbums }),
   /** The folders under `src` that hold photos, each followed by the ones inside it. */
   scanFolders: (src: string) => invoke<FolderInfo[]>("scan_folders", { src }),
   cancelImport: () => invoke<void>("cancel_import"),
@@ -44,7 +51,9 @@ export const api = {
   /** Every album as a tree, each followed by the albums inside it. */
   listAlbums: () => invoke<Album[]>("list_albums"),
   /** `parentId` null makes a top-level album. */
-  createAlbum: (name: string, parentId: number | null = null) => invoke<number>("create_album", { name, parentId }),
+  createAlbum: (name: string, parentId: number | null = null, kind: AlbumKind = "album") =>
+    invoke<number>("create_album", { name, parentId, kind }),
+  setAlbumKind: (id: number, kind: AlbumKind) => invoke<void>("set_album_kind", { id, kind }),
   renameAlbum: (id: number, name: string) => invoke<void>("rename_album", { id, name }),
   /** The albums inside it, and for an album inside another its photos, move up a level. */
   deleteAlbum: (id: number) => invoke<void>("delete_album", { id }),

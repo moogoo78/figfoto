@@ -30,9 +30,9 @@
 
             - photo already in library → added to album, no second copy
 
-            - folder tree before adding: each folder → album (inside the album above) / into folder above / skip, with where its photos will go
+            - folder tree before adding: each folder → category / album / section (inside an album only) / into folder above / skip, with where its photos will go
 
-               - presets: one album · an album per folder inside · albums nested like the folders
+               - presets: one album · an album per folder inside · … with sections · categories like the folders, albums at the bottom
 
                - adding again: a photo moved elsewhere in the same top-level album stays put
 
@@ -122,11 +122,20 @@
 
       - album
 
-         - Albums page (below All photos): top-level album tiles (stacked when albums are inside); new / rename / delete; drag an album onto another to put it inside
+         - Albums page (below All photos): album / category tiles (stacked when albums are inside); new / rename / delete; drag an album onto another to put it inside
 
          - sidebar shortcuts: albums pinned with ☆, in the order pinned; drop photos on a shortcut album
 
-         - albums nest (Travel › Japan › Kyoto › Day 2; an album holds photos, albums, or both)
+         - category › album › section (Travel › Japan › 240503_Kyoto › Morning); one albums table, nested
+
+            - album: a day's photos, named YYMMDD_topic; category: groups albums, nests; section: anything inside an album
+
+            - Albums page: Daily (every album by date, by year and month, wherever filed; only unfiled) / Categories / Tree
+
+            - day albums on adding photos (One album per day): YYMMDD for days with no album yet; a category folder's own photos → YYMMDD_<folder> per day
+
+            - make it a category / an album; a category can't go inside an album
+
 
             - make inside: by hand (from the selection too) / split by day / added folders (nested like the folders)
 

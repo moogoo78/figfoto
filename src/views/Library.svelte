@@ -3,7 +3,7 @@
   import { untrack } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
-  import { basename, fmtDateTime } from "../lib/format";
+  import { basename, dayAlbumPrefix, fmtDateTime } from "../lib/format";
   import { PhotoList } from "../lib/photoList.svelte";
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
@@ -11,7 +11,7 @@
   import AlbumMove from "../lib/AlbumMove.svelte";
   import AlbumOptions from "../lib/AlbumOptions.svelte";
   import AlbumTiles from "../lib/AlbumTiles.svelte";
-  import type { AlbumDisplay, ChildOrder } from "../lib/types";
+  import type { AlbumDisplay, AlbumKind, ChildOrder } from "../lib/types";
   import SettingsInput from "../lib/SettingsInput.svelte";
   import LensInput from "../lib/LensInput.svelte";
   import TagInput from "../lib/TagInput.svelte";
@@ -82,6 +82,8 @@
   /** The albums above the one shown, top first, and the albums inside it (at any depth). */
   const above = $derived(albumId == null ? [] : store.albumPath(albumId).slice(0, -1));
   const inside = $derived(albumId == null ? [] : store.albumsInside(albumId));
+  /** What goes inside the album shown: albums in a category, sections in an album or section. */
+  const sections = $derived(currentAlbum != null && currentAlbum.role !== "category");
   /** Albums inside shown as tiles above the photos (the album's own only). */
   const tiles = $derived(currentAlbum?.display === "tiles" ? store.albumsIn(currentAlbum.id) : []);
   /** The photos are grouped under the albums inside. */
@@ -150,8 +152,7 @@
   async function suggestAlbumName(): Promise<string> {
     const span = await api.dateSpan(selected).catch(() => null);
     if (!span) return "";
-    const [first, last] = span;
-    return first === last ? first : `${first} – ${last}`;
+    return dayAlbumPrefix(span[0]);
   }
 
   async function createAlbumFromSelection() {
@@ -172,7 +173,7 @@
     store.selection.clear();
     for (const id of ids) store.selection.add(id);
     anchor = start;
-    if (action === "album") newAlbumName = day;
+    if (action === "album") newAlbumName = dayAlbumPrefix(day) || day;
   }
 
   /** Adds an album inside the album shown (or inside `newChildParent`); the selected photos, if
@@ -190,6 +191,13 @@
     }, ids.length ? t("Album “{name}” made with {n} photo(s)", { name, n: ids.length }) : t("Album “{name}” added", { name }));
     if (currentAlbum?.display === "inline") store.sort = "children";
     store.selection.clear();
+  }
+
+  function setKind(kind: AlbumKind) {
+    albumMenu = false;
+    if (albumId == null) return;
+    const album = albumId;
+    store.mutate(() => api.setAlbumKind(album, kind), kind === "category" ? t("Now a category") : t("Now an album"));
   }
 
   function splitByDay() {
@@ -269,6 +277,13 @@
     el.select();
   };
 
+  /** Focuses a name field; a day prefix ("240503_") is kept and the topic typed after it. */
+  const focusName = (el: HTMLInputElement) => {
+    el.focus();
+    if (el.value.endsWith("_")) el.setSelectionRange(el.value.length, el.value.length);
+    else el.select();
+  };
+
   const singleRating = $derived(selected.length === 1 ? (list.find(selected[0])?.rating ?? 0) : 0);
 </script>
 
@@ -303,8 +318,12 @@
         <input
           class="albumname"
           placeholder={newChildParent
-            ? t("Album inside “{name}”", { name: newChildParent.name })
-            : selected.length ? t("Album for {n} selected", { n: selected.length }) : t("Album name")}
+            ? store.albums.find((a) => a.id === newChildParent?.id)?.role === "category"
+              ? t("Album inside “{name}”", { name: newChildParent.name })
+              : t("Section of “{name}”", { name: newChildParent.name })
+            : sections
+              ? selected.length ? t("Section for {n} selected", { n: selected.length }) : t("Section name")
+              : selected.length ? t("Album for {n} selected", { n: selected.length }) : t("Album name")}
           bind:value={newChildName}
           use:focusSelect
           onblur={() => { newChildName = null; newChildParent = null; }}
@@ -317,13 +336,29 @@
           disabled={!newChildName.trim()}>{t("Save")}</button>
       {:else}
         <span class="menuwrap">
-          <button onclick={() => (albumMenu = !albumMenu)} title={t("Albums inside this one, like Kyoto and Nara in Japan")}>{t("Albums inside")} ▾</button>
+          <button onclick={() => (albumMenu = !albumMenu)}
+            title={sections ? t("Sections of this album, like Morning and Evening") : t("Albums in this category, like 240503_Kyoto")}>
+            {sections ? t("Sections") : t("Albums inside")} ▾
+          </button>
           {#if albumMenu}
             <div class="menu" role="menu">
               <button role="menuitem" onclick={() => { albumMenu = false; newChildName = ""; }}>
-                {selected.length ? t("New album inside from {n} selected", { n: selected.length }) : t("New album inside")}
+                {#if sections}
+                  {selected.length ? t("New section from {n} selected", { n: selected.length }) : t("New section")}
+                {:else}
+                  {selected.length ? t("New album inside from {n} selected", { n: selected.length }) : t("New album inside")}
+                {/if}
               </button>
-              <button role="menuitem" onclick={splitByDay} title={t("This album's own photos go into an album inside per day")}>{t("Split by day")}</button>
+              <button role="menuitem" onclick={splitByDay}
+                title={currentAlbum.role === "section" ? t("This section's own photos go into a section per day") : t("This album's own photos go into an album per day, and it becomes a category")}>
+                {t("Split by day")}
+              </button>
+              {#if currentAlbum.role !== "section"}
+                <button role="menuitem" onclick={() => setKind(currentAlbum.kind === "category" ? "album" : "category")}
+                  title={currentAlbum.kind === "category" ? t("An album holds the photos of a day, with sections inside") : t("A category groups albums, like Travel › Japan")}>
+                  {currentAlbum.kind === "category" ? t("Make it an album") : t("Make it a category")}
+                </button>
+              {/if}
               <hr />
               <button role="menuitemradio" aria-checked={currentAlbum.display === "inline"} onclick={() => setDisplay("inline")}
                 title={t("Show their photos here, under a heading each")}>
@@ -370,7 +405,7 @@
       <option value="takenAsc">{t("Oldest first")}</option>
       <option value="importedDesc">{t("Recently added")}</option>
       <option value="ratingDesc">{t("Highest rated")}</option>
-      {#if currentAlbum?.display === "inline" && inside.length}<option value="children">{t("By album inside")}</option>{/if}
+      {#if currentAlbum?.display === "inline" && inside.length}<option value="children">{sections ? t("By section") : t("By album inside")}</option>{/if}
     </select>
     <input type="range" min="100" max="360" step="20" bind:value={store.thumbSize} title={t("Thumbnail size")} />
   </header>
@@ -402,7 +437,7 @@
             class="albumname"
             placeholder={t("New album name")}
             bind:value={newAlbumName}
-            use:focusSelect
+            use:focusName
             onblur={() => (newAlbumName = null)}
             onkeydown={(e) => {
               if (e.key === "Enter") createAlbumFromSelection();
@@ -434,12 +469,12 @@
               if (v === "new") newChildName = "";
               else if (v) moveTo(Number(v));
             }}>
-            <option value="">{t("Move to album inside…")}</option>
+            <option value="">{sections ? t("Move to section…") : t("Move to album inside…")}</option>
             {#each inside as a (a.id)}
               <option value={a.id}>{"\u00a0\u00a0".repeat(a.depth - currentAlbum.depth - 1)}{a.name}</option>
             {/each}
             {#if inside.length}<option value={currentAlbum.id}>{t("{name} itself", { name: currentAlbum.name })}</option>{/if}
-            <option value="new">{t("New album inside…")}</option>
+            <option value="new">{sections ? t("New section…") : t("New album inside…")}</option>
           </select>
           <button onclick={() => store.mutate(() => api.removeFromAlbum(albumId, selected, true))}>{t("Remove from album")}</button>
           {#if selected.length === 1}

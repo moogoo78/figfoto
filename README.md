@@ -74,14 +74,28 @@ sorted by date, then lets you browse, rate, tag, group into albums and weed out 
 ```
 
 Added photos are filed by date under `originals/` and stay there; albums are kept in the library
-database, so adding a photo to an album (or to several) never moves the file. To make an album from
-a day, hover the day header in the grid and click **＋ New album** (or select photos and click
-**＋ New album** in the selection bar).
+database, so adding a photo to an album (or to several) never moves the file.
 
-Albums nest: an album holds photos, other albums, or both (*Travel › Japan › Kyoto › Day 2*). An
-album's page shows the albums inside either as tiles or with their photos inline, under a heading
-each, ordered oldest first, newest first or by name. Adding organized folders makes the same tree
-from the folders.
+Albums are organized around days:
+
+- an **album** holds the photos of a day, named `YYMMDD_topic` (*240503_Kyoto*). Adding photos with
+  **One album per day** on makes a `240503` album for each day that has no album yet; add the topic
+  later. To make one by hand, hover the day header in the grid and click **＋ New album** (or select
+  photos and click **＋ New album** in the selection bar). The name starts as `240503_`.
+- a **category** groups albums and can hold other categories (*Travel › Japan*). Drag an album onto
+  a category to file it.
+- a **section** is anything inside an album (*240503_Kyoto › Morning*).
+
+The Albums page has three views. **Daily** lists every album by date, under year and month
+headings, wherever the album is filed. **Categories** shows the top-level categories. **Tree** shows
+everything. A page shows what is inside it either as tiles or with the photos inline, under a
+heading each, ordered oldest first, newest first or by name.
+
+Adding organized folders lets you choose what each folder becomes: a **category**, an **album**, a
+**section** (only inside an album), part of the folder above, or skipped. Presets: one album; an
+album per folder inside; the same with deeper folders as sections; or categories like the folders,
+with albums at the bottom. With day albums on, a category folder's own photos go into a
+`YYMMDD_<folder>` album per day inside it.
 
 **Empty trash** moves the files to the system Trash (not a permanent delete), so they can still be
 recovered from the desktop.

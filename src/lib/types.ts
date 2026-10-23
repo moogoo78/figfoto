@@ -55,7 +55,10 @@ export interface Tag {
   count: number;
 }
 
-/** An album holds photos, other albums, or both (Japan › Kyoto › Day 2). */
+/**
+ * An album holds photos, other albums, or both. A category groups albums (Travel › Japan); an
+ * album holds a day's photos (240503_Kyoto); anything inside an album is a section of it.
+ */
 export interface Album {
   id: number;
   name: string;
@@ -75,7 +78,17 @@ export interface Album {
   display: AlbumDisplay;
   /** When pinned to the sidebar: its place among the shortcuts (lower first). */
   shortcut: number | null;
+  /** As stored: a category or an album. */
+  kind: AlbumKind;
+  /** What it is where it sits; inside an album it is a section. */
+  role: AlbumRole;
+  /** When its first and last photos (its own and inside it) were taken. */
+  firstTaken: string | null;
+  lastTaken: string | null;
 }
+
+export type AlbumKind = "category" | "album";
+export type AlbumRole = AlbumKind | "section";
 
 /** How the albums inside an album are ordered: oldest first, newest first, or by name. */
 export type ChildOrder = "date" | "newest" | "name";
@@ -137,9 +150,10 @@ export interface Filter {
 /** "children" (by the albums inside) only applies inside an album (elsewhere it sorts oldest first). */
 export type Sort = "takenDesc" | "takenAsc" | "importedDesc" | "ratingDesc" | "children";
 
-/** What a folder becomes when adding organized folders: an album (inside the album of the
- * folder above), part of the folder above ("parent"), or not added ("skip"). */
-export type FolderRole = "album" | "parent" | "skip";
+/** What a folder becomes when adding organized folders: a category, an album or a section
+ * (each inside the one of the folder above), part of the folder above ("parent"), or not added
+ * ("skip"). Anything inside an album is a section; a section with no album above is an album. */
+export type FolderRole = "category" | "album" | "section" | "parent" | "skip";
 
 /** A folder holding photos (directly or below), for planning an organized-folders import. */
 export interface FolderInfo {

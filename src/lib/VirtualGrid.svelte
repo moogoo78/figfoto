@@ -210,7 +210,7 @@
             <button class="link dayact" onclick={() => ondayaction("select", "", row.start, row.count)}>{t("Select")}</button>
           {/if}
           {#if id && onalbum}
-            <button class="link dayact" title={t("New album inside")} onclick={() => onalbum("add", id, { name: row.label })}>＋</button>
+            <button class="link dayact" title={t("Add inside")} onclick={() => onalbum("add", id, { name: row.label })}>＋</button>
             <button class="link dayact" title={t("Delete album")}
               onclick={() => onalbum("delete", id, { name: row.label, children: row.children })}>×</button>
           {/if}

@@ -5,13 +5,13 @@
   import { errorText } from "../lib/format";
   import SourceInput from "../lib/SourceInput.svelte";
   import { store } from "../lib/store.svelte";
-  import { place, presetPlan, type FolderPreset } from "../lib/folderPlan";
+  import { place, presetPlan, underAlbum, type FolderPreset } from "../lib/folderPlan";
   import type { FolderInfo, FolderRole } from "../lib/types";
 
   let source = $state("");
   /** Optional label for where these photos came from (e.g. LINE). */
   let origin = $state("");
-  /** Organized folders: each folder becomes an album (inside the album above), part of the folder above, or is skipped. */
+  /** Organized folders: each folder becomes a category, an album or a section (inside the one above), part of the folder above, or is skipped. */
   let folderAlbums = $state(false);
   /** The chosen folder's folders that hold photos (organized folders), once scanned. */
   let folders = $state.raw<FolderInfo[] | null>(null);
@@ -23,6 +23,23 @@
   let savedPlan: Record<string, FolderRole> | null = null;
   /** Also bring back photos that were deleted from the library (trash emptied) before. */
   let includeDeleted = $state(false);
+  /** One album per day; remembered in this browser only. */
+  const DAY_ALBUMS_KEY = "figfoto.import.dayAlbums";
+  let dayAlbums = $state(readDayAlbums());
+  function readDayAlbums() {
+    try {
+      return localStorage.getItem(DAY_ALBUMS_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  }
+  function saveDayAlbums() {
+    try {
+      localStorage.setItem(DAY_ALBUMS_KEY, String(dayAlbums));
+    } catch {
+      // Not remembered; fine.
+    }
+  }
   let started = $state(false);
 
   // "Import again" from the history view prefills the folder.
@@ -64,18 +81,38 @@
     if (folders) roles = presetPlan(folders, p);
   }
 
+  // Inside an album a folder can only be a section, and a section needs an album above.
+  $effect(() => {
+    for (const f of folders ?? []) {
+      const role = roles[f.path];
+      const inAlbum = underAlbum(f, roles);
+      if (inAlbum && (role === "category" || role === "album")) roles[f.path] = "section";
+      if (!inAlbum && role === "section") roles[f.path] = "album";
+    }
+  });
+
   const byPath = $derived(new Map((folders ?? []).map((f) => [f.path, f])));
   const places = $derived((folders ?? []).map((f) => place(f, byPath, roles)));
-  /** Albums the plan makes, and photos it leaves out. */
+  /** Categories and albums (sections included) the plan makes, and photos it leaves out. */
   const summary = $derived.by(() => {
-    const albums = new Set<string>();
+    const [categories, albums] = [new Set<string>(), new Set<string>()];
     let skipped = 0;
     places.forEach((pl, i) => {
-      if (pl.kind === "in") pl.albums.forEach((_, k) => albums.add(pl.albums.slice(0, k + 1).join("/")));
+      if (pl.kind === "in") {
+        pl.albums.forEach((a, k) => (a.kind === "category" ? categories : albums).add(pl.albums.slice(0, k + 1).map((x) => x.name).join("/")));
+      }
       if (pl.kind === "skip") skipped += folders![i].photos;
     });
-    return { albums: albums.size, skipped };
+    return { categories: categories.size, albums: albums.size, skipped };
   });
+
+  /** "Japan › D5", and for a category with day albums "Japan › YYMMDD_Japan". */
+  function destination(pl: Extract<ReturnType<typeof place>, { kind: "in" }>) {
+    const names = pl.albums.map((a) => a.name);
+    const last = pl.albums[pl.albums.length - 1];
+    if (last.kind === "category" && dayAlbums) names.push(`YYMMDD_${last.name}`);
+    return names.join(" › ");
+  }
 
   const p = $derived(started ? store.progress : null);
   const running = $derived(started && !p?.finished);
@@ -89,7 +126,7 @@
   async function start() {
     store.progress = null;
     try {
-      await api.startImport(source, origin, folderAlbums, folderAlbums ? $state.snapshot(roles) : null, includeDeleted);
+      await api.startImport(source, origin, folderAlbums, folderAlbums ? $state.snapshot(roles) : null, includeDeleted, dayAlbums);
       started = true;
     } catch (e) {
       store.toast(errorText(e), true);
@@ -124,7 +161,7 @@
           <label class:on={folderAlbums}>
             <input type="radio" name="kind" value={true} bind:group={folderAlbums} />
             <strong>{t("Organized folders")}</strong>
-            <small>{t("Folders become albums, nested like the folders")}</small>
+            <small>{t("Folders become categories, albums and sections")}</small>
           </label>
         </div>
         <p class="hint">
@@ -138,7 +175,12 @@
           <div class="plan">
             <div class="presets">
               <span>{t("Make:")}</span>
-              {#each [["one", t("One album")], ["inside", t("An album per folder inside")], ["every", t("Albums nested like the folders")]] as [value, label] (value)}
+              {#each [
+                ["one", t("One album")],
+                ["inside", t("An album per folder inside")],
+                ["sections", t("An album per folder inside, with sections")],
+                ["every", t("Categories like the folders, albums at the bottom")],
+              ] as [value, label] (value)}
                 <button class:active={preset === value} onclick={() => applyPreset(value as FolderPreset)}>{label}</button>
               {/each}
             </div>
@@ -147,7 +189,7 @@
             {:else if folders && !folders.length}
               <p class="hint">{t("No photos in this folder.")}</p>
             {:else if folders}
-              <p class="hint">{t("Choose what each folder becomes. An album goes inside the album of the folder above it.")}</p>
+              <p class="hint">{t("Choose what each folder becomes. Categories hold albums; an album holds a day or an event, with sections inside.")}</p>
               <div class="tree">
                 {#each folders as f, i (f.path)}
                   {@const pl = places[i]}
@@ -156,7 +198,12 @@
                     <span class="fname" style:padding-left="{f.depth * 18}px" title={f.path || source}>{f.name}</span>
                     <small title={t("{n} photos here, {m} with the folders inside", { n: f.photos, m: f.total })}>{f.total}</small>
                     <select bind:value={roles[f.path]} disabled={under}>
-                      <option value="album">{t("Album")}</option>
+                      {#if underAlbum(f, roles)}
+                        <option value="section">{t("Section")}</option>
+                      {:else}
+                        <option value="category">{t("Category")}</option>
+                        <option value="album">{t("Album")}</option>
+                      {/if}
                       <option value="parent">{f.depth > 0 ? t("Into folder above") : t("No album")}</option>
                       {#if f.depth > 0}<option value="skip">{t("Skip")}</option>{/if}
                     </select>
@@ -164,13 +211,14 @@
                       <!-- Only folders that hold photos themselves say where those go. -->
                       {#if pl.kind === "skip"}{t("not added")}
                       {:else if f.photos && pl.kind === "loose"}→ {t("no album")}
-                      {:else if f.photos && pl.kind === "in"}→ {pl.albums.join(" › ")}{/if}
+                      {:else if f.photos && pl.kind === "in"}→ {destination(pl)}{/if}
                     </span>
                   </div>
                 {/each}
               </div>
               <p class="hint">
                 {[
+                  ...(summary.categories ? [t("{n} categories", { n: summary.categories })] : []),
                   t("{n} album(s)", { n: summary.albums }),
                   ...(summary.skipped ? [t("{n} photos skipped", { n: summary.skipped })] : []),
                   t("Photos already in the library are added to their album without a second copy."),
@@ -182,6 +230,10 @@
         <label class="origin">
           <span>{t("Source")} <small>{t("(optional — e.g. photos saved from LINE or Facebook)")}</small></span>
           <SourceInput bind:value={origin} submitOnEnter={false} placeholder={t("Camera / phone detected automatically")} />
+        </label>
+        <label class="check">
+          <input type="checkbox" bind:checked={dayAlbums} onchange={saveDayAlbums} />
+          <span>{t("One album per day")} <small>{t("(named like 240503; add a topic later: 240503_Kyoto)")}</small></span>
         </label>
         <label class="check">
           <input type="checkbox" bind:checked={includeDeleted} />

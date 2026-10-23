@@ -19,6 +19,11 @@ export function fmtDay(day: string): string {
   return d.toLocaleDateString(i18n.locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
+/** "240503_" for 2024-05-03: the start of the name of that day's album (240503_Kyoto). */
+export function dayAlbumPrefix(day: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.test(day) ? `${day.slice(2, 4)}${day.slice(5, 7)}${day.slice(8, 10)}_` : "";
+}
+
 export function fmtDateTime(s: string): string {
   const d = new Date(s);
   if (isNaN(d.getTime())) return s;
