@@ -7,8 +7,10 @@ use std::path::Path;
 use crate::error::Result;
 use crate::library::Library;
 
-const HEADER: [&str; 9] =
-    ["original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags", "lens", "file_name"];
+const HEADER: [&str; 11] = [
+    "original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags",
+    "camera_make", "camera_model", "lens", "file_name",
+];
 
 /// Writes the CSV to `dest` and returns how many photos it lists. Albums are full paths
 /// (`Travel / Japan / 190503_Japan`); a photo in several albums, or with several tags, has them
@@ -16,7 +18,7 @@ const HEADER: [&str; 9] =
 /// time); `adjusted_datetime` is set only when that was changed. `lens` is the one set by hand
 /// for a manual lens, else the one the camera recorded.
 pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
-    let rows: Vec<[String; 9]> = {
+    let rows: Vec<[String; 11]> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "WITH RECURSIVE album_path(id, path) AS (
@@ -29,7 +31,7 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                     JOIN album_path ap ON ap.id = x.album_id WHERE x.photo_id = p.id ORDER BY ap.path)),
                 (SELECT group_concat(name, '; ') FROM (SELECT t.name FROM photo_tags pt
                     JOIN tags t ON t.id = pt.tag_id WHERE pt.photo_id = p.id ORDER BY t.name)),
-                COALESCE(NULLIF(p.lens_set, ''), p.lens), p.orig_name
+                p.camera_make, p.camera_model, COALESCE(NULLIF(p.lens_set, ''), p.lens), p.orig_name
              FROM photos p WHERE p.trashed_at IS NULL ORDER BY p.taken_at, p.id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -50,6 +52,8 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                 text(6)?,
                 text(7)?,
                 text(8)?,
+                text(9)?,
+                text(10)?,
             ])
         })?;
         rows.collect::<rusqlite::Result<_>>()?
