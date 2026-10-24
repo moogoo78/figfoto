@@ -154,7 +154,8 @@ from), `library_path`, `datetime` (the date it came with: EXIF, or the file's mo
 `adjusted_datetime` (filled only when the date was guessed from a name or set by hand),
 `date_source`, `albums` (full paths like `Travel / 210715_Japan`, `; ` between several), `tags`,
 `camera_make`, `camera_model`, `lens` (set by hand for a manual lens, else from the camera),
-`iso`, `aperture` (the f-number, like `2.8`), `focal_length` (mm) and `file_name`. It opens in spreadsheet apps as UTF-8.
+`iso`, `aperture` (the f-number, like `2.8`), `exposure_time` (like `1/250` or `2s`),
+`focal_length` (mm) and `file_name`. It opens in spreadsheet apps as UTF-8.
 
 **Cloud backups** (Google Drive, Backblaze B2, Proton Drive, or anything else rclone supports) go
 through [rclone](https://rclone.org), which you install yourself:

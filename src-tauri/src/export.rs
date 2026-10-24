@@ -7,9 +7,9 @@ use std::path::Path;
 use crate::error::Result;
 use crate::library::Library;
 
-const HEADER: [&str; 14] = [
+const HEADER: [&str; 15] = [
     "original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags",
-    "camera_make", "camera_model", "lens", "iso", "aperture", "focal_length", "file_name",
+    "camera_make", "camera_model", "lens", "iso", "aperture", "exposure_time", "focal_length", "file_name",
 ];
 
 /// Writes the CSV to `dest` and returns how many photos it lists. Albums are full paths
@@ -17,9 +17,10 @@ const HEADER: [&str; 14] = [
 /// separated by `; `. `datetime` is the date the photo came with (EXIF, or its file's modified
 /// time); `adjusted_datetime` is set only when that was changed. `lens` is the one set by hand
 /// for a manual lens, else the one the camera recorded. `aperture` is the f-number (2.8) and
-/// `focal_length` is in mm, as the camera recorded them.
+/// `focal_length` is in mm, as the camera recorded them; `exposure_time` is written as in the app
+/// (1/250, 2s).
 pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
-    let rows: Vec<[String; 14]> = {
+    let rows: Vec<[String; 15]> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "WITH RECURSIVE album_path(id, path) AS (
@@ -33,7 +34,7 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                 (SELECT group_concat(name, '; ') FROM (SELECT t.name FROM photo_tags pt
                     JOIN tags t ON t.id = pt.tag_id WHERE pt.photo_id = p.id ORDER BY t.name)),
                 p.camera_make, p.camera_model, COALESCE(NULLIF(p.lens_set, ''), p.lens),
-                p.iso, p.f_number, p.focal_len, p.orig_name
+                p.iso, p.f_number, p.exposure, p.focal_len, p.orig_name
              FROM photos p WHERE p.trashed_at IS NULL ORDER BY p.taken_at, p.id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -59,8 +60,9 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                 text(9)?,
                 number(10)?,
                 number(11)?,
-                number(12)?,
-                text(13)?,
+                text(12)?,
+                number(13)?,
+                text(14)?,
             ])
         })?;
         rows.collect::<rusqlite::Result<_>>()?
