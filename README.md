@@ -152,8 +152,8 @@ to FigFoto stay in their `frutyfoto-backup/` folder and keep working.
 **Export CSV…** writes a list of every photo (trash left out): `original_path` (where it was added
 from), `library_path`, `datetime` (the date it came with: EXIF, or the file's modified time),
 `adjusted_datetime` (filled only when the date was guessed from a name or set by hand),
-`date_source`, `albums` (full paths like `Travel / 210715_Japan`, `; ` between several), `tags`
-and `file_name`. It opens in spreadsheet apps as UTF-8.
+`date_source`, `albums` (full paths like `Travel / 210715_Japan`, `; ` between several), `tags`,
+`lens` (set by hand for a manual lens, else from the camera) and `file_name`. It opens in spreadsheet apps as UTF-8.
 
 **Cloud backups** (Google Drive, Backblaze B2, Proton Drive, or anything else rclone supports) go
 through [rclone](https://rclone.org), which you install yourself:

@@ -7,15 +7,16 @@ use std::path::Path;
 use crate::error::Result;
 use crate::library::Library;
 
-const HEADER: [&str; 8] =
-    ["original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags", "file_name"];
+const HEADER: [&str; 9] =
+    ["original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags", "lens", "file_name"];
 
 /// Writes the CSV to `dest` and returns how many photos it lists. Albums are full paths
 /// (`Travel / Japan / 190503_Japan`); a photo in several albums, or with several tags, has them
 /// separated by `; `. `datetime` is the date the photo came with (EXIF, or its file's modified
-/// time); `adjusted_datetime` is set only when that was changed.
+/// time); `adjusted_datetime` is set only when that was changed. `lens` is the one set by hand
+/// for a manual lens, else the one the camera recorded.
 pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
-    let rows: Vec<[String; 8]> = {
+    let rows: Vec<[String; 9]> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "WITH RECURSIVE album_path(id, path) AS (
@@ -28,7 +29,7 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                     JOIN album_path ap ON ap.id = x.album_id WHERE x.photo_id = p.id ORDER BY ap.path)),
                 (SELECT group_concat(name, '; ') FROM (SELECT t.name FROM photo_tags pt
                     JOIN tags t ON t.id = pt.tag_id WHERE pt.photo_id = p.id ORDER BY t.name)),
-                p.orig_name
+                COALESCE(NULLIF(p.lens_set, ''), p.lens), p.orig_name
              FROM photos p WHERE p.trashed_at IS NULL ORDER BY p.taken_at, p.id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -48,6 +49,7 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                 text(5)?,
                 text(6)?,
                 text(7)?,
+                text(8)?,
             ])
         })?;
         rows.collect::<rusqlite::Result<_>>()?

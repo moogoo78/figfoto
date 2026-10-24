@@ -1752,19 +1752,20 @@ fn exports_paths_dates_albums_and_tags_to_csv() {
     queries::add_to_album(&lib, japan, &[cam.id]).unwrap();
     queries::add_tags(&lib, &[cam.id], &["sea".into(), "LINE".into()]).unwrap();
     figfoto_lib::dates::set_taken(&lib, &[fixed.id], NaiveDate::from_ymd_opt(2021, 7, 17).unwrap(), None).unwrap();
+    queries::set_lens(&lib, &[shot.id], "7Artisans 25mm F1.8").unwrap();
 
     let dest = _tmp.path().join("photos.csv");
     assert_eq!(figfoto_lib::export::photos_csv(&lib, &dest).unwrap(), 3);
     let csv = std::fs::read_to_string(&dest).unwrap();
     let lines: Vec<&str> = csv.trim_start_matches('\u{feff}').lines().collect();
-    assert_eq!(lines[0], "original_path,library_path,datetime,adjusted_datetime,date_source,albums,tags,file_name");
+    assert_eq!(lines[0], "original_path,library_path,datetime,adjusted_datetime,date_source,albums,tags,lens,file_name");
     let row = |p: &figfoto_lib::queries::Photo, rest: &str| {
         let src_path = src.join(&p.orig_name).to_string_lossy().into_owned();
         let quote = |s: String| if s.contains(',') { format!("\"{s}\"") } else { s };
         format!("{},{},{rest}", quote(src_path), quote(lib.root.join(&queries::get_photo(&lib, p.id).unwrap().photo.rel_path).to_string_lossy().into_owned()))
     };
     // The file's modified time was the date it came with; the name gave a better one.
-    assert_eq!(lines[1], row(&shot, "2023-01-09 08:30:00,2019-05-03 10:15:00,filename,,,Screenshot_20190503-101500.png"));
-    assert_eq!(lines[2], row(&cam, "2021-07-15 10:20:30,,exif,Travel / 210715_Japan,LINE; sea,\"a, b.jpg\""));
-    assert_eq!(lines[3], row(&fixed, "2021-07-16 09:00:00,2021-07-17 09:00:00,manual,,,c.jpg"));
+    assert_eq!(lines[1], row(&shot, "2023-01-09 08:30:00,2019-05-03 10:15:00,filename,,,7Artisans 25mm F1.8,Screenshot_20190503-101500.png"));
+    assert_eq!(lines[2], row(&cam, "2021-07-15 10:20:30,,exif,Travel / 210715_Japan,LINE; sea,,\"a, b.jpg\""));
+    assert_eq!(lines[3], row(&fixed, "2021-07-16 09:00:00,2021-07-17 09:00:00,manual,,,,c.jpg"));
 }
