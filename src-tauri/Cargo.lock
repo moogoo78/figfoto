@@ -902,6 +902,7 @@ dependencies = [
  "image",
  "image_hasher",
  "kamadak-exif",
+ "libc",
  "libheif-rs",
  "rayon",
  "rusqlite",

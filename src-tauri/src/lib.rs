@@ -16,8 +16,31 @@ pub mod thumbs;
 
 use commands::*;
 
+/// Raises the open-files limit to the most allowed. A desktop session often starts apps with
+/// 1024, and WebKit opens a file for each image it hands over, so scrolling a big grid could run
+/// out ("Failed to create shared memory: Too many open files"). Done before the window opens, so
+/// WebKit's own processes start with the raised limit too.
+#[cfg(unix)]
+fn raise_open_files_limit() {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit/setrlimit only read and write the struct passed in.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
+            return;
+        }
+        // macOS refuses more than OPEN_MAX per process, even with an unlimited hard limit.
+        let most = if cfg!(target_os = "macos") { lim.rlim_max.min(10240) } else { lim.rlim_max };
+        if lim.rlim_cur < most {
+            lim.rlim_cur = most;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(unix)]
+    raise_open_files_limit();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
