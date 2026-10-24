@@ -7,18 +7,19 @@ use std::path::Path;
 use crate::error::Result;
 use crate::library::Library;
 
-const HEADER: [&str; 11] = [
+const HEADER: [&str; 14] = [
     "original_path", "library_path", "datetime", "adjusted_datetime", "date_source", "albums", "tags",
-    "camera_make", "camera_model", "lens", "file_name",
+    "camera_make", "camera_model", "lens", "iso", "aperture", "focal_length", "file_name",
 ];
 
 /// Writes the CSV to `dest` and returns how many photos it lists. Albums are full paths
 /// (`Travel / Japan / 190503_Japan`); a photo in several albums, or with several tags, has them
 /// separated by `; `. `datetime` is the date the photo came with (EXIF, or its file's modified
 /// time); `adjusted_datetime` is set only when that was changed. `lens` is the one set by hand
-/// for a manual lens, else the one the camera recorded.
+/// for a manual lens, else the one the camera recorded. `aperture` is the f-number (2.8) and
+/// `focal_length` is in mm, as the camera recorded them.
 pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
-    let rows: Vec<[String; 11]> = {
+    let rows: Vec<[String; 14]> = {
         let conn = lib.conn();
         let mut stmt = conn.prepare(
             "WITH RECURSIVE album_path(id, path) AS (
@@ -31,11 +32,14 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                     JOIN album_path ap ON ap.id = x.album_id WHERE x.photo_id = p.id ORDER BY ap.path)),
                 (SELECT group_concat(name, '; ') FROM (SELECT t.name FROM photo_tags pt
                     JOIN tags t ON t.id = pt.tag_id WHERE pt.photo_id = p.id ORDER BY t.name)),
-                p.camera_make, p.camera_model, COALESCE(NULLIF(p.lens_set, ''), p.lens), p.orig_name
+                p.camera_make, p.camera_model, COALESCE(NULLIF(p.lens_set, ''), p.lens),
+                p.iso, p.f_number, p.focal_len, p.orig_name
              FROM photos p WHERE p.trashed_at IS NULL ORDER BY p.taken_at, p.id",
         )?;
         let rows = stmt.query_map([], |r| {
             let text = |i| r.get::<_, Option<String>>(i).map(Option::unwrap_or_default);
+            // To one decimal, without a trailing ".0": 2.8, 50.
+            let number = |i| r.get::<_, Option<f64>>(i).map(|v| v.map(|v| ((v * 10.0).round() / 10.0).to_string()).unwrap_or_default());
             let (taken, original) = (text(2)?, r.get::<_, Option<String>>(3)?);
             let (datetime, adjusted) = match original {
                 Some(o) if o != taken => (o, taken),
@@ -53,7 +57,10 @@ pub fn photos_csv(lib: &Library, dest: &Path) -> Result<usize> {
                 text(7)?,
                 text(8)?,
                 text(9)?,
-                text(10)?,
+                number(10)?,
+                number(11)?,
+                number(12)?,
+                text(13)?,
             ])
         })?;
         rows.collect::<rusqlite::Result<_>>()?
