@@ -1738,3 +1738,33 @@ fn photos_added_before_date_sources_are_checked_once() {
     assert_eq!(photo_named(&lib, "cam.jpg").date_source.as_deref(), Some("exif"));
     assert_eq!(figfoto_lib::dates::backfill_sources(&lib).unwrap(), 0, "only once");
 }
+
+#[test]
+fn exports_paths_dates_albums_and_tags_to_csv() {
+    let Env { _tmp, src, lib } = env();
+    png_without_exif(&src.join("Screenshot_20190503-101500.png"), 0);
+    write(&src.join("a, b.jpg"), &with_exif(jpeg_bytes(&picture(3, 64, 64), 90), "2021:07:15 10:20:30", "Cam"));
+    write(&src.join("c.jpg"), &with_exif(jpeg_bytes(&picture(1, 64, 64), 90), "2021:07:16 09:00:00", "Cam"));
+    import_all(&lib, &src);
+    let (shot, cam, fixed) = (photo_named(&lib, "Screenshot_20190503-101500.png"), photo_named(&lib, "a, b.jpg"), photo_named(&lib, "c.jpg"));
+    let travel = queries::create_album(&lib, "Travel", None, "category").unwrap();
+    let japan = queries::create_album(&lib, "210715_Japan", Some(travel), "album").unwrap();
+    queries::add_to_album(&lib, japan, &[cam.id]).unwrap();
+    queries::add_tags(&lib, &[cam.id], &["sea".into(), "LINE".into()]).unwrap();
+    figfoto_lib::dates::set_taken(&lib, &[fixed.id], NaiveDate::from_ymd_opt(2021, 7, 17).unwrap(), None).unwrap();
+
+    let dest = _tmp.path().join("photos.csv");
+    assert_eq!(figfoto_lib::export::photos_csv(&lib, &dest).unwrap(), 3);
+    let csv = std::fs::read_to_string(&dest).unwrap();
+    let lines: Vec<&str> = csv.trim_start_matches('\u{feff}').lines().collect();
+    assert_eq!(lines[0], "original_path,library_path,datetime,adjusted_datetime,date_source,albums,tags,file_name");
+    let row = |p: &figfoto_lib::queries::Photo, rest: &str| {
+        let src_path = src.join(&p.orig_name).to_string_lossy().into_owned();
+        let quote = |s: String| if s.contains(',') { format!("\"{s}\"") } else { s };
+        format!("{},{},{rest}", quote(src_path), quote(lib.root.join(&queries::get_photo(&lib, p.id).unwrap().photo.rel_path).to_string_lossy().into_owned()))
+    };
+    // The file's modified time was the date it came with; the name gave a better one.
+    assert_eq!(lines[1], row(&shot, "2023-01-09 08:30:00,2019-05-03 10:15:00,filename,,,Screenshot_20190503-101500.png"));
+    assert_eq!(lines[2], row(&cam, "2021-07-15 10:20:30,,exif,Travel / 210715_Japan,LINE; sea,\"a, b.jpg\""));
+    assert_eq!(lines[3], row(&fixed, "2021-07-16 09:00:00,2021-07-17 09:00:00,manual,,,c.jpg"));
+}

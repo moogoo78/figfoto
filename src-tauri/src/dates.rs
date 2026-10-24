@@ -128,7 +128,8 @@ pub fn set_taken(lib: &Library, ids: &[i64], date: NaiveDate, time: Option<Naive
     let mut errors = Vec::new();
     for (id, taken) in &photos {
         lib.conn().execute(
-            "UPDATE photos SET taken_at = ?1, date_source = ?2 WHERE id = ?3",
+            "UPDATE photos SET original_taken_at = COALESCE(original_taken_at, taken_at), taken_at = ?1, date_source = ?2
+             WHERE id = ?3",
             params![fmt_dt(*taken), MANUAL, id],
         )?;
         if let Err(e) = storage::move_to_date_folder(lib, *id) {
@@ -168,7 +169,10 @@ pub fn backfill_sources(lib: &Library) -> Result<usize> {
     let mut changed = 0;
     for (id, date, how, moved) in found {
         lib.conn().execute(
-            "UPDATE photos SET taken_at = ?1, date_source = ?2 WHERE id = ?3",
+            "UPDATE photos SET original_taken_at = CASE WHEN taken_at = ?1 THEN original_taken_at
+                    ELSE COALESCE(original_taken_at, taken_at) END,
+                taken_at = ?1, date_source = ?2
+             WHERE id = ?3",
             params![fmt_dt(date), how, id],
         )?;
         if moved {

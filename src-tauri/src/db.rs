@@ -353,6 +353,11 @@ UPDATE albums SET kind = 'category'
     r#"
 ALTER TABLE photos ADD COLUMN date_source TEXT;
 "#,
+    // v26: the date a photo had before it was guessed from a name or set by hand (its file's
+    // modified time, or the date it was imported with). NULL while the date is unchanged.
+    r#"
+ALTER TABLE photos ADD COLUMN original_taken_at TEXT;
+"#,
 ];
 
 /// Migrations (by the version they bring the library to) that rebuild tables. They run with

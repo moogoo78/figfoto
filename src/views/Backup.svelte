@@ -1,8 +1,8 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { open, save } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
-  import { errorText, fmtBytes, fmtDateTime } from "../lib/format";
+  import { basename, errorText, fmtBytes, fmtDateTime } from "../lib/format";
   import { store } from "../lib/store.svelte";
   import type { BackupTarget, RcloneStatus } from "../lib/types";
 
@@ -45,6 +45,18 @@
   async function add() {
     const dir = await pick(t("Back up to…"));
     if (dir) store.mutate(() => api.addBackupTarget(dir), t("Backup disk added"));
+  }
+
+  /** A CSV of every photo: where it came from, where it is, its dates, albums and tags. */
+  async function exportCsv() {
+    const path = await save({ title: t("Export photo list"), defaultPath: "figfoto-photos.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
+    if (!path) return;
+    try {
+      const n = await api.exportCsv(path);
+      store.toast(t("{n} photo(s) exported to {name}", { n, name: basename(path) }));
+    } catch (e) {
+      store.toast(errorText(e), true);
+    }
   }
 
   async function changeFolder(target: BackupTarget) {
@@ -137,6 +149,7 @@
     {/if}
     <button class="primary add" onclick={add}>＋ {t("Add backup disk…")}</button>
     <button onclick={() => openCloudForm(null)}>＋ {t("Add cloud backup…")}</button>
+    <button onclick={exportCsv} title={t("A CSV of every photo: where it was added from, where it is in the library, its dates, albums and tags.")}>{t("Export CSV…")}</button>
   </header>
 
   <div class="body">

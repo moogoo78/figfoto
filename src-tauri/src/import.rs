@@ -639,11 +639,13 @@ fn import_one(
 fn copy_and_index(lib: &Library, import_id: i64, source: Option<&str>, src: &Path, hash: &str) -> Result<()> {
     let meta = std::fs::metadata(src)?;
     let exif = exif::read(src);
-    let (taken_at, date_source) = match exif.taken_at {
-        Some(t) => (t, crate::dates::EXIF),
+    let (taken_at, date_source, original) = match exif.taken_at {
+        Some(t) => (t, crate::dates::EXIF, None),
         None => {
             let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            crate::dates::guess(&name, Some(src), mtime(&meta))
+            let modified = mtime(&meta);
+            let (t, how) = crate::dates::guess(&name, Some(src), modified);
+            (t, how, (t != modified).then(|| fmt_dt(modified)))
         }
     };
 
@@ -676,8 +678,8 @@ fn copy_and_index(lib: &Library, import_id: i64, source: Option<&str>, src: &Pat
         .execute(
             "INSERT INTO photos (hash, phash, rel_path, orig_name, source_path, taken_at, imported_at,
                 width, height, file_size, mime, camera_make, camera_model, lens, iso, f_number,
-                exposure, focal_len, gps_lat, gps_lon, orientation, import_id, source, date_source)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                exposure, focal_len, gps_lat, gps_lon, orientation, import_id, source, date_source, original_taken_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 hash,
                 processed.phash as i64,
@@ -703,6 +705,7 @@ fn copy_and_index(lib: &Library, import_id: i64, source: Option<&str>, src: &Pat
                 import_id,
                 source,
                 date_source,
+                original,
             ],
         )
         .map_err(|e| cleanup(e.into()))?;

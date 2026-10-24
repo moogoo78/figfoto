@@ -469,6 +469,12 @@ pub async fn set_taken_at(state: State<'_, AppState>, ids: Vec<i64>, date: Strin
     crate::dates::set_taken(&*state.lib()?, &ids, date, time)
 }
 
+/// Writes every photo (paths, dates, albums, tags) to a CSV file; returns how many.
+#[tauri::command]
+pub async fn export_csv(state: State<'_, AppState>, path: String) -> Result<usize> {
+    crate::export::photos_csv(&*state.lib()?, std::path::Path::new(&path))
+}
+
 #[tauri::command]
 pub async fn set_lens(state: State<'_, AppState>, ids: Vec<i64>, lens: String) -> Result<usize> {
     queries::set_lens(&*state.lib()?, &ids, &lens)

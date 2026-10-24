@@ -114,6 +114,11 @@ export const zhTW: Record<string, string> = {
     "為選取的照片設定相機設定註記，會取代原本的內容；留空送出可清除。",
   "Set where the selected photos came from. It replaces what they had; enter nothing to clear it.":
     "設定選取照片的來源，會取代原本的內容；留空送出可清除。",
+  "Export photo list": "匯出照片清單",
+  "Export CSV…": "匯出 CSV…",
+  "{n} photo(s) exported to {name}": "已匯出 {n} 張照片到 {name}",
+  "A CSV of every photo: where it was added from, where it is in the library, its dates, albums and tags.":
+    "所有照片的 CSV：原始路徑、在相片庫中的位置、日期、相簿與標籤。",
   "Camera settings set": "已設定相機設定",
   "Camera settings cleared": "已清除相機設定",
   "Move to…": "移到…",

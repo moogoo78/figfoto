@@ -6,6 +6,7 @@ pub mod db;
 pub mod dupes;
 pub mod error;
 pub mod exif;
+pub mod export;
 pub mod import;
 pub mod library;
 pub mod marks;
@@ -73,6 +74,7 @@ pub fn run() {
             list_lenses,
             set_lens,
             set_taken_at,
+            export_csv,
             add_lens,
             remove_lens,
             rename_lens,

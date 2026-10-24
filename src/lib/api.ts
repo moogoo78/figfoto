@@ -119,6 +119,7 @@ export const api = {
   onDatesFixed: (cb: (n: number) => void): Promise<UnlistenFn> => listen<number>("dates://fixed", (e) => cb(e.payload)),
   /** `date` YYYY-MM-DD; with `time` (HH:MM) the earliest photo gets it and the rest keep their spacing. */
   setTakenAt: (ids: number[], date: string, time: string | null) => invoke<number>("set_taken_at", { ids, date, time }),
+  exportCsv: (path: string) => invoke<number>("export_csv", { path }),
   onBackupProgress: (cb: (p: { targetId: number; done: number; total: number }) => void): Promise<UnlistenFn> =>
     listen<{ targetId: number; done: number; total: number }>("backup://progress", (e) => cb(e.payload)),
 };
