@@ -374,6 +374,12 @@ export const zhTW: Record<string, string> = {
   "{n} section(s)": "{n} 個小節",
   Daily: "日常",
   Categories: "分類",
+  "Search albums…": "搜尋相簿…",
+  "Any part of a name or its category, like kyoto, 2405 or japan 1905. Press / to search.":
+    "輸入名稱或分類的任一部分，例如 kyoto、2405 或 japan 1905。按 / 開始搜尋。",
+  "{n} match(es)": "{n} 個符合",
+  "No albums match “{q}”.": "沒有符合「{q}」的相簿。",
+  "Showing {shown} of {n}; type more to narrow it": "顯示 {n} 個中的 {shown} 個；再多打幾個字可縮小範圍",
   Category: "分類",
   Section: "小節",
   "Every album by date, wherever it is filed": "所有相簿依日期排列，不論放在哪個分類",

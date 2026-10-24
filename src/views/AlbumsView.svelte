@@ -75,6 +75,54 @@
     }
   }
 
+  /** Album search: every word must be in the name or the category path above it. */
+  let search = $state("");
+  let searchInput: HTMLInputElement | undefined = $state();
+  const MAX_RESULTS = 200;
+  const norm = (s: string) => s.normalize("NFKC").toLowerCase();
+  const matches = $derived.by(() => {
+    const words = norm(search).split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    const found = store.albums.filter((a) => {
+      const text = norm(`${a.name} ${store.albumLabel(a.parentId)}`);
+      return words.every((w) => text.includes(w));
+    });
+    const newest = (x: Album, y: Album) => (y.firstTaken ?? "").localeCompare(x.firstTaken ?? "") || x.name.localeCompare(y.name);
+    return [
+      { label: t("Categories"), albums: found.filter((a) => a.role === "category") },
+      { label: t("Albums"), albums: found.filter((a) => a.role === "album").sort(newest) },
+      { label: t("Sections"), albums: found.filter((a) => a.role === "section") },
+    ];
+  });
+  const matchCount = $derived(matches?.reduce((n, g) => n + g.albums.length, 0) ?? 0);
+  /** The groups cut to MAX_RESULTS tiles in all. */
+  const shown = $derived.by(() => {
+    let left = MAX_RESULTS;
+    return (matches ?? [])
+      .map((g) => {
+        const albums = g.albums.slice(0, left);
+        left -= albums.length;
+        return { ...g, albums };
+      })
+      .filter((g) => g.albums.length);
+  });
+
+  function searchKeys(e: KeyboardEvent) {
+    if (e.key === "Escape") search = "";
+    const first = shown[0]?.albums[0];
+    if (e.key === "Enter" && first) store.setView({ kind: "album", id: first.id });
+    e.stopPropagation();
+  }
+  /** `/` or Ctrl+F focuses the search, unless typing somewhere. */
+  function windowKeys(e: KeyboardEvent) {
+    const el = e.target as HTMLElement;
+    if (el.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (e.key === "/" || ((e.ctrlKey || e.metaKey) && e.key === "f")) {
+      e.preventDefault();
+      searchInput?.focus();
+    }
+  }
+
   function monthLabel(month: string) {
     const d = new Date(`${month}-01T00:00:00`);
     return isNaN(d.getTime()) ? t("No photos") : d.toLocaleDateString(i18n.locale, { month: "long" });
@@ -95,12 +143,20 @@
   };
 </script>
 
+<svelte:window onkeydown={windowKeys} />
+
 <section class="albums">
   <header>
     <h1>{t("Albums")}</h1>
-    <span class="count">{t("{n} album(s)", { n: days.length })} · {t("{n} categories", { n: store.albums.filter((a) => a.role === "category").length })}</span>
+    {#if matches}
+      <span class="count">{t("{n} match(es)", { n: matchCount })}</span>
+    {:else}
+      <span class="count">{t("{n} album(s)", { n: days.length })} · {t("{n} categories", { n: store.albums.filter((a) => a.role === "category").length })}</span>
+    {/if}
     <span class="grow"></span>
     {#if store.albums.length}
+      <input class="search" type="search" placeholder={t("Search albums…")} bind:value={search} bind:this={searchInput}
+        onkeydown={searchKeys} title={t("Any part of a name or its category, like kyoto, 2405 or japan 1905. Press / to search.")} />
       <div class="modes" role="group">
         <button aria-pressed={mode === "daily"} onclick={() => setMode("daily")} title={t("Every album by date, wherever it is filed")}>{t("Daily")}</button>
         <button aria-pressed={mode === "categories"} onclick={() => setMode("categories")}>{t("Categories")}</button>
@@ -122,6 +178,16 @@
   <div class="body">
     {#if !store.albums.length}
       <p class="hint">{t("No albums yet. Make one here, or from photos you select.")}</p>
+    {:else if matches}
+      {#each shown as g (g.label)}
+        <h3>{g.label}</h3>
+        <AlbumTiles albums={g.albums} paths />
+      {:else}
+        <p class="hint">{t("No albums match “{q}”.", { q: search.trim() })}</p>
+      {/each}
+      {#if matchCount > MAX_RESULTS}
+        <p class="hint">{t("Showing {shown} of {n}; type more to narrow it", { shown: MAX_RESULTS, n: matchCount })}</p>
+      {/if}
     {:else if mode === "tree"}
       <AlbumTree />
       <p class="hint">{t("Drag an album onto another to put it inside, or onto the top level to take it out.")}</p>
@@ -162,6 +228,7 @@
   .grow { flex: 1; }
   /* Explicit width: some WebKitGTK builds otherwise squeeze a text field in a flex row to a sliver. */
   .name-input { width: 240px; flex-shrink: 0; }
+  .search { width: 200px; flex-shrink: 0; }
   .body { flex: 1; overflow-y: auto; padding: 16px; }
   .modes { display: inline-flex; }
   .modes button { border-radius: 0; }

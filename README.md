@@ -88,7 +88,8 @@ Albums are organized around days:
 
 The Albums page has three views. **Daily** lists every album by date, under year and month
 headings, wherever the album is filed. **Categories** shows the top-level categories. **Tree** shows
-everything. A page shows what is inside it either as tiles or with the photos inline, under a
+everything. **Search albums…** (or `/`) finds albums, categories and sections by any part of a name
+or the category above it (`kyoto`, `2405`, `japan 1905`). A page shows what is inside it either as tiles or with the photos inline, under a
 heading each, ordered oldest first, newest first or by name.
 
 Adding organized folders lets you choose what each folder becomes: a **category**, an **album**, a
