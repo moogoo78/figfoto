@@ -112,6 +112,8 @@ export const zhTW: Record<string, string> = {
   "Camera settings (tripod, bulb…)": "相機設定（腳架、B 快門…）",
   "Set the camera-settings note on the selected photos. It replaces what they had; enter nothing to clear it.":
     "為選取的照片設定相機設定註記，會取代原本的內容；留空送出可清除。",
+  "Set where the selected photos came from. It replaces what they had; enter nothing to clear it.":
+    "設定選取照片的來源，會取代原本的內容；留空送出可清除。",
   "Camera settings set": "已設定相機設定",
   "Camera settings cleared": "已清除相機設定",
   "Move to…": "移到…",

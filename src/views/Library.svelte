@@ -3,11 +3,11 @@
   import { untrack } from "svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
-  import { basename, dayAlbumPrefix, fmtDateTime } from "../lib/format";
+  import { SOURCE_SUGGESTIONS, basename, dayAlbumPrefix, fmtDateTime } from "../lib/format";
   import { PhotoList } from "../lib/photoList.svelte";
   import Stars from "../lib/Stars.svelte";
   import { store } from "../lib/store.svelte";
-  import SourceInput from "../lib/SourceInput.svelte";
+  import SaveInput from "../lib/SaveInput.svelte";
   import AlbumMove from "../lib/AlbumMove.svelte";
   import AlbumOptions from "../lib/AlbumOptions.svelte";
   import AlbumTiles from "../lib/AlbumTiles.svelte";
@@ -427,7 +427,10 @@
         <button onclick={() => store.mutate(() => api.setFavorite(selected, true))}>♥ {t("Favorite")}</button>
         <button onclick={() => store.mutate(() => api.setFavorite(selected, false))}>♡ {t("Unfavorite")}</button>
         <TagInput bind:this={tagInput} onadd={(names) => store.mutate(() => api.addTags(selected, names), t("Tagged"))} />
-        <SourceInput onset={(source) => store.mutate(() => api.setSource(selected, source), source ? t("Source set to {source}", { source }) : t("Source cleared"))} />
+        <SaveInput onset={(source) => store.mutate(() => api.setSource(selected, source), source ? t("Source set to {source}", { source }) : t("Source cleared"))}
+          suggestions={[...new Set([...store.sources, ...SOURCE_SUGGESTIONS])]}
+          placeholder={t("Source (LINE, Facebook…)")}
+          title={t("Set where the selected photos came from. It replaces what they had; enter nothing to clear it.")} />
         <SettingsInput onset={(text) => store.mutate(() => api.setNote(selected, "settings", text), text ? t("Camera settings set") : t("Camera settings cleared"))} />
         <LensInput onset={(lens) => store.mutate(() => api.setLens(selected, lens), (n) =>
           !lens ? t("Lens cleared")
